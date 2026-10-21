@@ -1,18 +1,18 @@
-"""Pełny schemat ML-KEM (IND-CCA2) z transformacją Fujisaki-Okamoto (FIPS 203, Sekcja 6 i 7)."""
+"""Full ML-KEM scheme (IND-CCA2) with the Fujisaki-Okamoto transform (FIPS 203, Sec. 6-7)."""
 
 from params import MLKEMParams
 
 
 def ml_kem_keygen(params: MLKEMParams) -> tuple[bytes, bytes]:
-    """Generuje parę kluczy (ek, dk) dla ML-KEM (Algorithm 16 i 19)."""
-    raise NotImplementedError("TODO: Implementacja Algorithm 16 / 19 (ML-KEM.KeyGen) z FIPS 203.")
+    """Generates the ML-KEM key pair (ek, dk) (Algorithms 16 and 19)."""
+    raise NotImplementedError("TODO: Implement Algorithm 16 / 19 (ML-KEM.KeyGen) from FIPS 203.")
 
 
 def ml_kem_encaps(params: MLKEMParams, ek: bytes) -> tuple[bytes, bytes]:
-    """Enkapsuluje wspólny sekret K i zwraca parę (K, c) (Algorithm 17 i 20)."""
-    raise NotImplementedError("TODO: Implementacja Algorithm 17 / 20 (ML-KEM.Encaps) z FIPS 203.")
+    """Encapsulates a shared secret K and returns the pair (K, c) (Algorithms 17 and 20)."""
+    raise NotImplementedError("TODO: Implement Algorithm 17 / 20 (ML-KEM.Encaps) from FIPS 203.")
 
 
 def ml_kem_decaps(params: MLKEMParams, dk: bytes, c: bytes) -> bytes:
-    """Dekapsuluje szyfrogram c (z weryfikacją FO) i zwraca K (Algorithm 18 i 21)."""
-    raise NotImplementedError("TODO: Implementacja Algorithm 18 / 21 (ML-KEM.Decaps) z FIPS 203.")
+    """Decapsulates ciphertext c (with FO re-encryption check) and returns K (Alg. 18 and 21)."""
+    raise NotImplementedError("TODO: Implement Algorithm 18 / 21 (ML-KEM.Decaps) from FIPS 203.")

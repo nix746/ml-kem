@@ -1,9 +1,9 @@
-# Wirtualne środowisko Pythona
+# Python virtual environment
 .venv/
 venv/
 ENV/
 
-# Bytecode i cache Pythona
+# Python bytecode and cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,13 +11,13 @@ __pycache__/
 dist/
 build/
 
-# Narzędzia testowe i lintery
+# Testing tools and linters
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 
-# Pliki tymczasowe i IDE
+# Temporary files and IDE settings
 .DS_Store
 Thumbs.db
 .vscode/

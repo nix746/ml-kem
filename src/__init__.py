@@ -1,1 +1,1 @@
-"""Pakiet implementujący standard postkwantowy ML-KEM (NIST FIPS 203)."""
+"""Package implementing the post-quantum ML-KEM standard (NIST FIPS 203)."""

@@ -1,4 +1,4 @@
-"""Testy weryfikujące poprawne działanie bibliotek środowiska (numpy, hashlib, kyber-py)."""
+"""Tests verifying that the environment libraries (numpy, hashlib, kyber-py) work correctly."""
 
 import hashlib
 
@@ -7,7 +7,7 @@ from kyber_py.ml_kem import ML_KEM_768
 
 
 def test_numpy_environment():
-    """Sprawdza działanie biblioteki NumPy na operacjach modulo."""
+    """Checks NumPy modular arithmetic."""
     a = np.array([3328, 10, 500], dtype=np.int32)
     b = np.array([2, 20, 3000], dtype=np.int32)
     res = (a + b) % 3329
@@ -15,7 +15,7 @@ def test_numpy_environment():
 
 
 def test_hashlib_sha3_and_shake_environment():
-    """Sprawdza dostępność SHA3 i SHAKE w standardowej bibliotece hashlib."""
+    """Checks that SHA3 and SHAKE are available in the standard hashlib module."""
     seed = b"test_seed_32_bytes______________"
 
     assert len(hashlib.sha3_256(seed).digest()) == 32
@@ -25,7 +25,7 @@ def test_hashlib_sha3_and_shake_environment():
 
 
 def test_reference_oracle_kyber_py():
-    """Sprawdza działanie biblioteki wzorcowej kyber-py (wyroczni testowej)."""
+    """Checks the kyber-py reference implementation (test oracle)."""
     ek, dk = ML_KEM_768.keygen()
     k_alice, c = ML_KEM_768.encaps(ek)
     k_bob = ML_KEM_768.decaps(dk, c)

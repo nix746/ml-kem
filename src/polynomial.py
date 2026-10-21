@@ -1,28 +1,28 @@
-"""Arytmetyka w pierścieniu wielomianów R_q = Z_q[X]/(X^256 + 1) oraz transformata NTT."""
+"""Arithmetic in the polynomial ring R_q = Z_q[X]/(X^256 + 1) and the NTT."""
 
 import numpy as np
 
 
 def poly_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Dodawanie dwóch wielomianów współczynnik po współczynniku modulo Q."""
-    raise NotImplementedError("TODO: Implementacja dodawania wielomianów w R_q.")
+    """Coefficient-wise addition of two polynomials modulo Q."""
+    raise NotImplementedError("TODO: Implement polynomial addition in R_q.")
 
 
 def poly_sub(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Odejmowanie dwóch wielomianów współczynnik po współczynniku modulo Q."""
-    raise NotImplementedError("TODO: Implementacja odejmowania wielomianów w R_q.")
+    """Coefficient-wise subtraction of two polynomials modulo Q."""
+    raise NotImplementedError("TODO: Implement polynomial subtraction in R_q.")
 
 
 def ntt(f: np.ndarray) -> np.ndarray:
-    """Transformata NTT (FIPS 203, Algorithm 9)."""
-    raise NotImplementedError("TODO: Implementacja Algorithm 9 (NTT) z FIPS 203.")
+    """Number-Theoretic Transform (FIPS 203, Algorithm 9)."""
+    raise NotImplementedError("TODO: Implement Algorithm 9 (NTT) from FIPS 203.")
 
 
 def inv_ntt(f_hat: np.ndarray) -> np.ndarray:
-    """Odwrotna transformata NTT^-1 (FIPS 203, Algorithm 10)."""
-    raise NotImplementedError("TODO: Implementacja Algorithm 10 (NTT^-1) z FIPS 203.")
+    """Inverse Number-Theoretic Transform NTT^-1 (FIPS 203, Algorithm 10)."""
+    raise NotImplementedError("TODO: Implement Algorithm 10 (NTT^-1) from FIPS 203.")
 
 
 def multiply_ntts(f_hat: np.ndarray, g_hat: np.ndarray) -> np.ndarray:
-    """Mnożenie dwóch reprezentacji NTT (FIPS 203, Algorithm 11)."""
-    raise NotImplementedError("TODO: Implementacja Algorithm 11 (MultiplyNTTs) z FIPS 203.")
+    """Multiplication of two NTT representations (FIPS 203, Algorithm 11)."""
+    raise NotImplementedError("TODO: Implement Algorithm 11 (MultiplyNTTs) from FIPS 203.")

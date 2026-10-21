@@ -1,12 +1,12 @@
-"""Parametry algorytmu ML-KEM zgodnie ze specyfikacją NIST FIPS 203 (Sekcja 8, Tabela 2)."""
+"""ML-KEM parameters as specified in NIST FIPS 203 (Section 8, Table 2)."""
 
 from dataclasses import dataclass
 
-# TODO: Zdefiniować stałe pierścienia (N, Q) oraz zestawy parametrów dla ML-KEM-512, 768, 1024
+# TODO: Define the ring constants (N, Q) and parameter sets for ML-KEM-512, 768, 1024
 
 
 @dataclass(frozen=True)
 class MLKEMParams:
-    """Zestaw parametrów dla konkretnego wariantu bezpieczeństwa ML-KEM."""
+    """Parameter set for a specific ML-KEM security level."""
 
     pass
