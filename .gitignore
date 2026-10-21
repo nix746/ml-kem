@@ -1,0 +1,25 @@
+# Wirtualne środowisko Pythona
+.venv/
+venv/
+ENV/
+
+# Bytecode i cache Pythona
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Narzędzia testowe i lintery
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Pliki tymczasowe i IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
