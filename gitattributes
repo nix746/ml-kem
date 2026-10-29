@@ -1,0 +1,15 @@
+# Normalize line endings: every text file is stored in the repository with LF.
+# Without this, Windows checkouts may convert files to CRLF and produce diffs
+# that change every line, plus conflicts with `ruff format`.
+* text=auto eol=lf
+ 
+# Windows scripts must keep CRLF to run correctly.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+ 
+# Binary files: never touch their bytes (e.g. KAT test vectors, images, PDFs).
+*.bin binary
+*.png binary
+*.jpg binary
+*.pdf binary
