@@ -77,3 +77,79 @@ Dodatkowo:
 
 - Mnożenie zwykłe daje 256^2 operacji + zawijanie ze znakiem. Dlatego stosujemy NTT.
 - Pomiar: [Naskręcki 41.4 "Timing Comparison: Schoolbook vs NTT"](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html).
+
+## 3. **Wektory i macierze** - [FIPS 203 §2.4.6–2.4.7](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf), [Naskręcki 41.14](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html)
+
+### 3.1 Matematyka
+
+- s, e $\in$ R_q^k (wektor $k$ wielomianów), A$\in$ R_q^(k * k) .
+- As_i = $\sum_j$ A_ij $\circ$ s_j, gdzie "$\circ$" to mnożenie wielomianów, nie liczb.
+- Wersja bez wielomianów, ale z macierzami i szumem: [Broeckelmann "Matrix Multiplication with Polynomials"](https://medium.com/@robert.broeckelmann/post-quantum-cryptography-ml-kem-the-math-7382776f6c44).
+
+### 3.2 W kodzie
+
+|Obiekt|shape|
+|---|---|
+|wielomian|`(256,)`|
+|wektor|`(k, 256)`|
+|macierz|`(k, k, 256)`|
+
+- Ostatni wymiar to zawsze wielomian, poprzednie to indeksy macierzowe.
+
+### 3.3 Pułapka
+
+- `*` i `@` z numpy nie robią mnożenia w R_q. Potrzebna własna funkcja + suma po j mod q.
+- Szkic mnożenia macierz × wektor w dziedzinie NTT: dla każdego `i` zsumuj po `j` wyniki `multiply_ntts(A[i, j], s[j])` i zredukuj mod q.
+
+---
+
+## 4. **NTT** - [FIPS 203 §4.3](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) (Alg. 9, 10), [Naskręcki 41.3–41.4](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html)
+
+### 4.1 Matematyka
+
+- Idea (intuicja): zamiast mnożyć wielomiany współczynnik po współczynniku, liczymy je w wielu punktach (pierwiastkach z jedynki), mnożymy wartości punkt po punkcie i wracamy. Dobrze opisuje to seria [RareSkills: Number Theoretic Transform](https://rareskills.io/post/number-theoretic-transform) (pierwiastki z jedynki, odwrotne NTT, mnożenie wielomianów, kod w Pythonie).
+- X^256 + 1 rozkłada się na 128 czynników X^2 - $\gamma_i$, gdzie $\gamma_i = \zeta^{2 BitRev_7(i) + 1}$.
+- NTT(f) = reszty f z dzielenia przez każdy z tych czynników, czyli 128 wielomianów stopnia $\le$ 1 (128 par współczynników).
+- Algorytm to motylki w warstwach len = 128, 64, ..., 2:
+    - t = $\zeta^{...}$ * f[j+len]
+    - f[j+len] = f[j] - t
+    - f[j] = f[j] + t
+    - wszystko mod q
+- InvNTT: to samo w drugą stronę + na końcu mnożenie przez 128^{-1} = 3303 mod q (sprawdzenie: 128 * 3303 = 3329 * 127 + 1).
+- Wizualnie: [Naskręcki 41.4 "NTT Butterfly Diagram"](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html).
+- **Uwaga o źródle RareSkills:** pokazuje standardowe (pełne) NTT na małym polu (q = 17), bez motylków w stylu Kybera, bez mnożenia negacyklicznego i bez wariantu "kończy się na parach". Do samego ML-KEM używaj FIPS 203 §4.3 i Naskręckiego.
+
+### 4.2 W [kodzie](https://rareskills.io/post/number-theoretic-transform)
+
+- Dalej `(256,)`, ale znaczenie inne: 128 par (f[2i], f[2i+1]).
+- Tablica $\zeta$: 128 potęg 17 w kolejności bit-reversed, nie rosnącej. Gotowa tablica do porównania: [FIPS 203, Dodatek A](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf).
+- Na początek zwykłe pętle, łatwiej pokazać co się dzieje.
+- Kod referencyjny w NumPy: [Naskręcki 41.4](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html), wizualizacja czynników: [41.13 "Visualising Twiddle Factors"](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html).
+
+### 4.3 Alternatywy
+
+- Mnożenie zwykłe: prostsze i wolniejsze, dobre jako wyrocznia do testów NTT. Test: `inv_ntt(ntt(f)) == f` oraz `inv_ntt(multiply_ntts(ntt(f), ntt(g))) == schoolbook(f, g)`.
+- Tablicę $\zeta$ policzyć przy imporcie albo wpisać gotową i porównać z FIPS 203.
+
+### 4.4 Pułapka
+
+- NTT kończy się na parach, nie na pojedynczych liczbach, bo 3329 nie jest $\equiv$ 1 mod 512 (3328 = 6,5 * 512). Stąd specjalne mnożenie (pkt 5).
+
+---
+
+## 5. **Mnożenie w dziedzinie NTT** - [FIPS 203 §4.3.1](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) (Alg. 11, 12), [Naskręcki 41.3 "Pointwise Multiplication"](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html)
+
+### 5.1 Matematyka
+
+- Dla każdej pary: (a_0 + a_1 X)(b_0 + b_1 X) mod (X^2 - $\gamma$)
+- c_0 = a_0 b_0 + a_1 b_1 $\gamma$
+- c_1 = a_0 b_1 + a_1 b_0
+- Wynika to wprost z mnożenia i zamiany $X^2 = \gamma$.
+
+### 5.2 W kodzie
+
+- Pętla po 128 parach albo slicing `a[0::2]`, `a[1::2]` + tablica $\gamma$.
+
+### 5.3 Pułapka
+
+- $\gamma$ jest inna dla każdej pary.
