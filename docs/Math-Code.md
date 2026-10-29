@@ -153,3 +153,75 @@ Dodatkowo:
 ### 5.3 Pułapka
 
 - $\gamma$ jest inna dla każdej pary.
+## 6. **Kompresja** - [FIPS 203 §4.2.1](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) (wzory 4.7 i 4.8), [Naskręcki 41.7](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html)
+
+### 6.1 Matematyka
+
+- Compress_d(x) = $\lfloor (2^d / q) \cdot x \rceil$ mod 2^d
+- Decompress_d(y) = $\lfloor (q / 2^d) \cdot y \rceil$
+- Stratna: wyrzuca młodsze bity, błąd wchodzi do szumu. Dzięki temu szyfrogram jest mniejszy (d_u, d_v bitów zamiast 12).
+- d = 1 służy do kodowania wiadomości: bit 0 -> 0, bit 1 -> 1665 ($\approx$ q/2). Daleko od siebie, więc szum nie przełączy bitu.
+- Przy odszyfrowaniu Compress_1 daje 1 dla $x \in [833, 2496]$, a 0 poza tym (z zawinięciem koła: liczby tuż pod 3329 są "blisko 0"). Margines na szum to około $q/4 \approx 832$.
+- Dlaczego widać w tym sens: [Naskręcki 41.9 "Decryption Noise Analysis"](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html) i [41.15 "Why Decryption Works"](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html).
+
+### 6.2 W kodzie
+
+- Same liczby całkowite:
+    - compress: `((x << d) + q // 2) // q % (1 << d)`
+    - decompress: `(y * q + (1 << (d-1))) >> d`
+- Przykłady (sprawdzone): `compress(1665, 1) = 1`, `decompress(1, 1) = 1665`, `compress(3328, 10) = 0` (3328 to "prawie -1", więc zawija się do 0, stąd potrzebne `% (1 << d)`), `decompress(compress(1000, 10), 10) = 1001` (strata do 1).
+
+### 6.3 Alternatywy
+
+- Wzór z `float` jest krótszy, ale może zaokrąglić inaczej niż standard.
+    
+- Przy float klucz może się rozjechać z kyber-py (to mój wniosek, nie cytat ze źródła; łatwo sprawdzić testem).
+    
+
+---
+
+## 7. **ByteEncode / ByteDecode** - [FIPS 203 §4.2.1](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) (Alg. 3, 4, 5, 6)
+
+- Tylko FIPS: [Naskręcki 41.8](https://bnaskrecki.faculty.wmi.amu.edu.pl/crypto/book/part14_lattice_crypto/ch41_ml_kem_kyber.html) w uproszczonej implementacji to pomija, a Broeckelmann tego nie opisuje.
+
+### 7.1 Matematyka
+
+- 256 liczb d-bitowych <-> 32 * d bajtów, bity little-endian.
+- Dla d = 12 przy dekodowaniu jest redukcja mod q, dla d < 12 nie.
+- Przykład d = 12: dwa współczynniki $a, b$ zajmują 3 bajty:
+    - bajt 0 = `a & 0xFF`
+    - bajt 1 = `(a >> 8) | ((b & 0xF) << 4)`
+    - bajt 2 = `b >> 4`
+    - dla $a = 0x123$, $b = 0xABC$ wychodzi `23 C1 AB` (sprawdzone).
+- To jest dokładnie odwrotność wzorów z SampleNTT (pkt 9.1): $d_1 = C_0 + 256 (C_1 \bmod 16)$, $d_2 = \lfloor C_1 / 16 \rfloor + 16 C_2$.
+
+### 7.2 W kodzie
+
+- Wejście `(256,)`, wyjście `bytes`.
+- Przesunięcia i maski na `int`.
+
+
+### 7.3 Pułapka
+
+- Jeden zły bit = zupełnie inny klucz.
+
+## 8. **Funkcje skrótu** - [FIPS 203 §4.1](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)
+
+### 8.1 Matematyka (FIPS 203, sekcja 4.1)
+
+|Funkcja|Realizacja|Wyjście|
+|---|---|---|
+|H|SHA3-256|32 B|
+|G|SHA3-512|64 B (dzielone 32 + 32)|
+|J|SHAKE256|32 B|
+|PRF_$\eta$(s, b)|SHAKE256(s \| b)|64 * $\eta$ B|
+|XOF|SHAKE128|dowolna długość|
+
+- W KeyGen: ($\rho$, $\sigma$) = G(d || k), czyli ziarno z dopisanym bajtem k (różnica względem pierwotnego Kybera: [FIPS 203, Dodatek C](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)).
+- Jak działa SHA-3 w środku (padding, absorpcja, wyciskanie, kroki theta/rho/pi/chi/iota): [Breaking down SHA-3](https://infosecwriteups.com/breaking-down-sha-3-algorithm-70fe25e125b6). **Uwaga:** artykuł opisuje tylko stałowyjściowe SHA3 (czyli H i G), a SHAKE (J, PRF, XOF) nie jest tam omówione. SHAKE to ten sam Keccak, tylko z wyjściem o dowolnej długości (standard FIPS 202; opis użycia w ML-KEM: FIPS 203 §4.1).
+
+### 8.2 W kodzie
+
+- Moduł [`hashlib`](https://docs.python.org/3/library/hashlib.html), wejście i wyjście to `bytes`, bez tablic: `hashlib.sha3_256`, `hashlib.sha3_512`, `hashlib.shake_128(x).digest(n)`, `hashlib.shake_256(x).digest(n)`.
+- Alternatywa: [PyCryptodome](https://www.pycryptodome.org/) ma SHA3-256/512 oraz SHAKE128/256 w `Crypto.Hash`, ale zasady zespołu każą trzymać `src/` na bibliotece standardowej, więc tam raczej nie.
+- Pułapka: `shake_128().digest(n)` wymaga z góry podanej długości, więc w SampleNTT generuj z zapasem i w razie potrzeby powtórz z większym `n` ([FIPS 203, Dodatek B "SampleNTT Loop Bounds"](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf)).
