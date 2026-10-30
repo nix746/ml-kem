@@ -2,10 +2,25 @@
 
 import numpy as np
 
+from params import Q
+
+def _check_compression_d(d: int) -> None:
+    """Raises ValueError unless 1 <= d < 12 (the range where Compress_d is defined)."""
+    if not 1 <= d < 12:
+        raise ValueError(f"d must satisfy 1 <= d < 12, got d={d}")
 
 def compress(d: int, x: np.ndarray) -> np.ndarray:
     """Compresses coefficients from Z_q to Z_{2^d}: round((2^d / q) * x) mod 2^d."""
-    raise NotImplementedError("TODO: Implement Compress_d from FIPS 203 (Section 4.2.1).")
+    _check_compression_d(d)
+    x = np.asarray(x, dtype=np.int64)
+    if np.any(x < 0) or np.any(x >= Q):
+        bad = x[(x < 0) | (x >= Q)]
+        raise ValueError(f"compress expects coefficients in [0, Q), got {bad}")
+    
+    # round(2^d * x / Q) with integers only: add Q // 2 before the floor division
+    rounded = ((x << d) + Q // 2) // Q
+    return rounded & ((1 << d) - 1)
+
 
 
 def decompress(d: int, y: np.ndarray) -> np.ndarray:
