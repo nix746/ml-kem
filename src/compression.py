@@ -13,7 +13,7 @@ def compress(d: int, x: np.ndarray) -> np.ndarray:
     """Compresses coefficients from Z_q to Z_{2^d}: round((2^d / q) * x) mod 2^d."""
     _check_compression_d(d)
     x = np.asarray(x, dtype=np.int64)
-    if np.any(x < 0) or np.any(x >= Q):
+    if np.any(x < 0) | np.any(x >= Q):
         bad = x[(x < 0) | (x >= Q)]
         raise ValueError(f"compress expects coefficients in [0, Q), got {bad}")
     
@@ -22,10 +22,17 @@ def compress(d: int, x: np.ndarray) -> np.ndarray:
     return rounded & ((1 << d) - 1)
 
 
-
 def decompress(d: int, y: np.ndarray) -> np.ndarray:
     """Decompresses coefficients from Z_{2^d} to Z_q: round((q / 2^d) * y)."""
-    raise NotImplementedError("TODO: Implement Decompress_d from FIPS 203 (Section 4.2.1).")
+    _check_compression_d(d)
+    y = np.asarray(y, dtype=np.int64)
+    if np.any(y < 0) | np.any(y >= (1 << d)):
+        bad = y[(y < 0) | (y >= (1 << d))]
+        raise ValueError(f"decompress expects coefficients in [0, {1 << d}), got {bad}")
+    
+    # round(Q * y / 2^d) with integers only: add 2^(d-1) (half of 2^d), then divide by 2^d
+    rounded = (Q * y + (1 << (d - 1))) // (1 << d)
+    return rounded
 
 
 def byte_encode(d: int, f: np.ndarray) -> bytes:
