@@ -5,12 +5,14 @@ import hashlib
 import numpy as np
 from kyber_py.ml_kem import ML_KEM_768
 
+from params import Q
+
 
 def test_numpy_environment():
     """Checks NumPy modular arithmetic."""
-    a = np.array([3328, 10, 500], dtype=np.int32)
+    a = np.array([Q - 1, 10, 500], dtype=np.int32)
     b = np.array([2, 20, 3000], dtype=np.int32)
-    res = (a + b) % 3329
+    res = (a + b) % Q
     assert np.array_equal(res, np.array([1, 30, 171], dtype=np.int32))
 
 
