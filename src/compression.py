@@ -35,11 +35,34 @@ def decompress(d: int, y: np.ndarray) -> np.ndarray:
     return rounded
 
 
+def _check_byte_encode_d(d: int) -> None:
+    """Raises ValueError unless 1 <= d < 12 (the range where ByteEncode_d is defined)."""
+    if not 1 <= d < 12:
+        raise ValueError(f"d must satisfy 1 <= d < 12, got d={d}")
+
+def _encoding_modulus(d: int) -> int:
+    """The modulus m of ByteEncode_d / ByteDecode_d: 2^d for d < 12 and Q for d = 12."""
+    return Q if d == 12 else 1 << d
+
 def byte_encode(d: int, f: np.ndarray) -> bytes:
     """Encodes an array of 256 d-bit integers into a 32*d-byte array (Algorithm 5)."""
-    raise NotImplementedError("TODO: Implement Algorithm 5 (ByteEncode_d) from FIPS 203.")
+    _check_byte_encode_d(d)
+    f = np.asarray(f, dtype=np.int64)
+    if f.shape != (256,):
+        raise ValueError(f"byte_encode expects an array of shape (256,), got {f.shape}")
+    if np.any(f < 0) | np.any(f >= _encoding_modulus(d)):
+        bad = f[(f < 0) | (f >= _encoding_modulus(d))]
+        raise ValueError(f"byte_encode expects coefficients in [0, {_encoding_modulus(d)}), got {bad}")
 
+    bits = (f[:, None] >> np.arange(d)) & 1  # shape (256, d)
+    return bits_to_bytes(bits.reshape(-1))  # flatten to (256*d,) and convert to bytes
 
 def byte_decode(d: int, b: bytes) -> np.ndarray:
     """Decodes a 32*d-byte array into an array of 256 integers (Algorithm 6)."""
-    raise NotImplementedError("TODO: Implement Algorithm 6 (ByteDecode_d) from FIPS 203.")
+    _check_byte_encode_d(d)
+    if len(b) != 32 * d:
+        raise ValueError(f"byte_decode expects a bytes object of length {32*d}, got {len(b)}")
+    
+    bits = bytes_to_bits(b).reshape(256, d)  # shape (256, d)
+    f = (bits * (1 << np.arange(d))).sum(axis=1)  # sum over d to get integers
+    return f % _encoding_modulus(d)  # ensure values are in the correct range
