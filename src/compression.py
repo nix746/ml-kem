@@ -1,7 +1,6 @@
 """Coefficient compression and byte encoding (FIPS 203, Section 4.2.1)."""
 
 import numpy as np
-
 from params import Q
 
 def _check_compression_d(d: int) -> None:
@@ -70,7 +69,8 @@ def bytes_to_bits(b: bytes) -> np.ndarray:
     significant bit of the first byte.
     """
     byte_values = np.frombuffer(b, dtype=np.uint8)
-    bits = ((byte_values[:, None] & _BYTE_BIT_WEIGHTS) > 0).astype(np.int64)
+    # Bit j of every byte: shift right by j, keep the last bit. Shape (l, 8) -> flat 8*l.
+    bits = (byte_values[:, None] >> np.arange(8)) & 1
     return bits.reshape(-1)  # flatten to a 1-D array
 
 def byte_encode(d: int, f: np.ndarray) -> bytes:
