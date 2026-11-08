@@ -36,8 +36,8 @@ def decompress(d: int, y: np.ndarray) -> np.ndarray:
 
 def _check_byte_encode_d(d: int) -> None:
     """Raises ValueError unless 1 <= d < 12 (the range where ByteEncode_d is defined)."""
-    if not 1 <= d < 12:
-        raise ValueError(f"d must satisfy 1 <= d < 12, got d={d}")
+    if not 1 <= d <= 12:
+        raise ValueError(f"d must satisfy 1 <= d <= 12, got d={d}")
 
 def _encoding_modulus(d: int) -> int:
     """The modulus m of ByteEncode_d / ByteDecode_d: 2^d for d < 12 and Q for d = 12."""
