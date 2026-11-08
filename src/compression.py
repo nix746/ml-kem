@@ -44,6 +44,22 @@ def _encoding_modulus(d: int) -> int:
     """The modulus m of ByteEncode_d / ByteDecode_d: 2^d for d < 12 and Q for d = 12."""
     return Q if d == 12 else 1 << d
 
+def bits_to_bytes(bits: np.ndarray) -> bytes:
+    """Converts a bit array of length 8*l into l bytes (FIPS 203, Algorithm 3).
+
+    Bit i goes to byte i // 8 with weight 2^(i mod 8): the first bit is the least
+    significant bit of the first byte.
+    """
+    bits = np.asarray(bits, dtype=np.int64)
+    if bits.ndim != 1 or bits.size % 8 != 0:
+        raise ValueError("bits_to_bytes expects a 1-D bit array whose length is a multiple of 8")
+    if np.any((bits != 0) & (bits != 1)):
+        raise ValueError("bits_to_bytes expects only the values 0 and 1")
+
+    # Row r holds the 8 bits of byte r; byte = sum of bit_j * 2^j over its row.
+    byte_values = (bits.reshape(-1, 8) * _BYTE_BIT_WEIGHTS).sum(axis=1)
+    return byte_values.astype(np.uint8).tobytes()
+
 def byte_encode(d: int, f: np.ndarray) -> bytes:
     """Encodes an array of 256 d-bit integers into a 32*d-byte array (Algorithm 5)."""
     _check_byte_encode_d(d)
