@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from params import N, Q
+from params import N_INV, ZETA, N, Q
 
 
 def _as_int64_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -41,9 +41,6 @@ def schoolbook_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return (c[:N] - c[N:]) % Q
 
 
-ZETA = 17  # primitive 256-th root of unity mod Q (FIPS 203, Section 4.3)
-
-
 def _bitrev7(i: int) -> int:
     """Reverses the 7 bits of i (0 <= i < 128)."""
     return int(format(i, "07b")[::-1], 2)
@@ -53,7 +50,6 @@ def _bitrev7(i: int) -> int:
 ZETAS = [pow(ZETA, _bitrev7(i), Q) for i in range(128)]
 # GAMMAS[i] = 17^(2*BitRev7(i)+1) mod Q: the roots of X^2 - gamma, used in MultiplyNTTs.
 GAMMAS = [pow(ZETA, 2 * _bitrev7(i) + 1, Q) for i in range(128)]
-N_INV = 3303  # 128^-1 mod Q (not 256^-1: the NTT stops after 7 layers, pairs remain)
 
 
 def _as_poly(f: np.ndarray) -> np.ndarray:
@@ -132,3 +128,36 @@ def multiply_ntts(f_hat: np.ndarray, g_hat: np.ndarray) -> np.ndarray:
             gamma,
         )
     return h
+
+
+def ntt_vec(v: np.ndarray) -> np.ndarray:
+    """Applies `ntt` to every polynomial of a vector of shape (k, N)."""
+    return np.array([ntt(poly) for poly in v], dtype=np.int64)
+
+
+def inv_ntt_vec(v_hat: np.ndarray) -> np.ndarray:
+    """Applies `inv_ntt` to every polynomial of a vector of shape (k, N)."""
+    return np.array([inv_ntt(poly) for poly in v_hat], dtype=np.int64)
+
+
+def transpose(a_hat: np.ndarray) -> np.ndarray:
+    """Transposes a matrix of polynomials of shape (k, k, N): result[i, j] = a_hat[j, i]."""
+    return np.transpose(a_hat, (1, 0, 2)).copy()
+
+
+def dot(u_hat: np.ndarray, v_hat: np.ndarray) -> np.ndarray:
+    """Dot product of two vectors in the NTT domain: sum of u_hat[i] * v_hat[i] (shape (N,))."""
+    if len(u_hat) != len(v_hat):
+        raise ValueError(f"vectors of different lengths: {len(u_hat)} and {len(v_hat)}")
+    result = np.zeros(N, dtype=np.int64)
+    for i in range(len(u_hat)):
+        result = poly_add(result, multiply_ntts(u_hat[i], v_hat[i]))
+    return result
+
+
+def matvec(a_hat: np.ndarray, v_hat: np.ndarray) -> np.ndarray:
+    """Matrix times vector in the NTT domain: result[i] = dot(a_hat[i], v_hat) (shape (k, N)).
+
+    For the transposed product (A^T * y in K-PKE.Encrypt) call matvec(transpose(a_hat), y_hat).
+    """
+    return np.array([dot(row, v_hat) for row in a_hat], dtype=np.int64)
