@@ -6,7 +6,14 @@ from kyber_py.ml_kem.ml_kem import ML_KEM
 
 import kem
 from crypto_primitives import j_hash
-from kem import ml_kem_decaps, ml_kem_encaps, ml_kem_keygen
+from kem import (
+    ml_kem_decaps,
+    ml_kem_decaps_internal,
+    ml_kem_encaps,
+    ml_kem_encaps_internal,
+    ml_kem_keygen,
+    ml_kem_keygen_internal,
+)
 from params import ML_KEM_512, ML_KEM_768, ML_KEM_1024, MLKEMParams
 
 
@@ -54,3 +61,23 @@ def test_ml_kem_roundtrip_and_implicit_rejection(params):
     assert k_rejected == j_hash(dk[-32:] + c_tampered)
     assert k_rejected != k_enc
 
+
+@pytest.mark.parametrize("params", [ML_KEM_512, ML_KEM_768, ML_KEM_1024])
+def test_ml_kem_internal_deterministic_matches_oracle(params):
+    d = bytes(range(32))
+    z = bytes(range(32, 64))
+    m = bytes(range(64, 96))
+
+    ek, dk = ml_kem_keygen_internal(params, d, z)
+    k_shared, c = ml_kem_encaps_internal(params, ek, m)
+    k_dec = ml_kem_decaps_internal(params, dk, c)
+
+    oracle = _kyber_instance(params)
+    ek_exp, dk_exp = oracle._keygen_internal(d, z)
+    k_exp, c_exp = oracle._encaps_internal(ek_exp, m)
+
+    assert ek == ek_exp
+    assert dk == dk_exp
+    assert c == c_exp
+    assert k_shared == k_exp
+    assert k_dec == k_exp
