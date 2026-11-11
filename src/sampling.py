@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from compression import bytes_to_bits
+from compress import bytes_to_bits
 from crypto_primitives import xof
 from params import N, Q
 
