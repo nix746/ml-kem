@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from kyber_py.ml_kem import ML_KEM_768
 
-from compression import bits_to_bytes
+from compress import bits_to_bytes
 from params import Q
 from sampling import sample_poly_cbd
 
