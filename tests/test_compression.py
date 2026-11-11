@@ -23,7 +23,7 @@ REF = ML_KEM_768.R.zero()
 ALL_X = np.arange(Q)  # every element of Z_q: 0, 1, ..., 3328
 
 
-# --- Comparison with the reference oracle (kyber-py) -------------------------------------
+# Comparison with the reference oracle (kyber-py)
 
 
 @pytest.mark.parametrize("d", D_VALUES)
@@ -39,7 +39,7 @@ def test_decompress_matches_kyber_py_for_every_y(d):
     assert decompress(d, all_y).tolist() == expected
 
 
-# --- Mathematical properties ----------------------------------------------------------------
+# Mathematical properties
 
 
 def centered_distance(a, b):
@@ -90,7 +90,7 @@ def test_examples_by_hand():
     assert compress(10, np.array([3328])).tolist() == [0]
 
 
-# --- Shapes and input validation ------------------------------------------------------------
+# Shapes and input validation
 
 
 def test_works_on_vectors_of_polynomials():

@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from compress import bytes_to_bits
 from crypto_primitives import xof
 from params import N, Q
 
@@ -39,6 +40,17 @@ def sample_ntt(rho: bytes, i: int, j: int) -> np.ndarray:
 def sample_poly_cbd(eta: int, buf: bytes) -> np.ndarray:
     """Samples a noise polynomial from the centered binomial distribution CBD_eta.
 
-    FIPS 203, Algorithm 8.
+    FIPS 203, Algorithm 8. The input is 64 * eta bytes = 256 * 2 * eta bits. 
+    Coefficient i uses the 2 * eta bits b[2 * eta * i : 2 * eta * (i + 1)]:
+        f_i = (sum of the first eta bits) - (sum of the next eta bits) mod Q
+    so f_i lies in [-eta, eta] (stored as Q - e for negative values), with mean 0 and variance eta / 2.
     """
-    raise NotImplementedError("TODO: Implement Algorithm 8 (SamplePolyCBD) from FIPS 203.")
+    if eta not in (2, 3):
+        raise ValueError(f"eta must be 2 or 3, got {eta}")
+    if len(buf) != 64 * eta:
+        raise ValueError(f"sample_poly_cbd with eta={eta} expects {64 * eta} bytes, got {len(buf)}")
+
+    bits = bytes_to_bits(buf).reshape(N, 2 * eta)
+    x = bits[:, :eta].sum(axis=1)
+    y = bits[:, eta:].sum(axis=1)
+    return (x - y) % Q
