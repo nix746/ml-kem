@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from compression import byte_decode, byte_encode, compress, decompress
+from compress import byte_decode, byte_encode, compress, decompress
 from crypto_primitives import g_hash, prf
 from params import MLKEMParams, N
 from polynomial import poly_add, poly_sub, schoolbook_mul
