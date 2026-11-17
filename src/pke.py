@@ -5,7 +5,16 @@ import numpy as np
 from compress import byte_decode, byte_encode, compress, decompress
 from crypto_primitives import g_hash, prf
 from params import MLKEMParams, N
-from polynomial import poly_add, poly_sub, schoolbook_mul
+from polynomial import (
+    dot,
+    inv_ntt,
+    inv_ntt_vec,
+    matvec,
+    ntt_vec,
+    poly_add,
+    poly_sub,
+    transpose,
+)
 from sampling import sample_ntt, sample_poly_cbd
 
 def k_pke_keygen(params: MLKEMParams, d: bytes) -> tuple[bytes, bytes]:
@@ -30,14 +39,12 @@ def k_pke_keygen(params: MLKEMParams, d: bytes) -> tuple[bytes, bytes]:
         e[i] = sample_poly_cbd(params.eta1, prf(params.eta1, sigma, n_counter))
         n_counter += 1
 
-    # schoolbook multiplication to be changed for multiply_ntts
-    t = e.copy()
-    for i in range(k):
-        for j in range(k):
-            t[i] = poly_add(t[i], schoolbook_mul(a_mat[i, j], s[j]))
+    s_hat = ntt_vec(s)
+    e_hat = ntt_vec(e)
+    t_hat = poly_add(matvec(a_mat, s_hat), e_hat)
 
-    ek_pke = b"".join(byte_encode(12, t[i]) for i in range(k)) + rho
-    dk_pke = b"".join(byte_encode(12, s[i]) for i in range(k))
+    ek_pke = b"".join(byte_encode(12, t_hat[i]) for i in range(k)) + rho
+    dk_pke = b"".join(byte_encode(12, s_hat[i]) for i in range(k))
     return ek_pke, dk_pke
 
 
@@ -47,7 +54,7 @@ def k_pke_encrypt(params: MLKEMParams, ek_pke: bytes, m: bytes, r: bytes) -> byt
 
     n_counter = 0
 
-    t = np.array(
+    t_hat = np.array(
         [byte_decode(12, ek_pke[384 * i : 384 * (i + 1)]) for i in range(k)],
         dtype=np.int64,
     )
@@ -71,18 +78,12 @@ def k_pke_encrypt(params: MLKEMParams, ek_pke: bytes, m: bytes, r: bytes) -> byt
 
     e2 = sample_poly_cbd(params.eta2, prf(params.eta2, r, n_counter))
 
-    u = e1.copy()
-    for i in range(k):
-        for j in range(k):
-            u[i] = poly_add(u[i], schoolbook_mul(a_mat[j, i], y[j]))
+    y_hat = ntt_vec(y)
+    u = poly_add(inv_ntt_vec(matvec(transpose(a_mat), y_hat)), e1)
 
     mu = decompress(1, byte_decode(1, m))
+    v = poly_add(poly_add(inv_ntt(dot(t_hat, y_hat)), e2), mu)
 
-    # schoolbook multiplication to be changed for multiply_ntts
-    v = poly_add(e2, mu)
-    for i in range(k):
-        v = poly_add(v, schoolbook_mul(t[i], y[i]))
-        
     c1 = b"".join(byte_encode(params.du, compress(params.du, u[i])) for i in range(k))
     c2 = byte_encode(params.dv, compress(params.dv, v))
     return c1 + c2
@@ -106,13 +107,12 @@ def k_pke_decrypt(params: MLKEMParams, dk_pke: bytes, c: bytes) -> bytes:
 
     v = decompress(params.dv, byte_decode(params.dv, c2))
 
-    s = np.array(
+    s_hat = np.array(
         [byte_decode(12, dk_pke[384 * i : 384 * (i + 1)]) for i in range(k)],
         dtype=np.int64,
     )
 
-    w = v.copy()
-    for i in range(k):
-        w = poly_sub(w, schoolbook_mul(s[i], u[i]))
+    u_hat = ntt_vec(u)
+    w = poly_sub(v, inv_ntt(dot(s_hat, u_hat)))
 
     return byte_encode(1, compress(1, w))
