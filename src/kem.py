@@ -2,6 +2,7 @@
 
 import secrets
 
+from compress import byte_decode, byte_encode
 from crypto_primitives import g_hash, h_hash, j_hash
 from params import MLKEMParams
 from pke import k_pke_decrypt, k_pke_encrypt, k_pke_keygen
@@ -31,7 +32,17 @@ def ml_kem_encaps_internal(params: MLKEMParams, ek: bytes, m: bytes) -> tuple[by
 
 def ml_kem_encaps(params: MLKEMParams, ek: bytes) -> tuple[bytes, bytes]:
     """Encapsulates a shared secret K and returns the pair (K, c) (Algorithm 20)."""
-    # Prototype simplification: FIPS 203 Section 7.2 encapsulation key validation is omitted.
+    k = params.k
+
+    if len(ek) != 384 * k + 32:
+        raise ValueError("Invalid encapsulation key length")
+
+    t_reencoded = b"".join(
+        byte_encode(12, byte_decode(12, ek[384 * i : 384 * (i + 1)])) for i in range(k)
+    )
+    if not secrets.compare_digest(t_reencoded, ek[: 384 * k]):
+        raise ValueError("Encapsulation key modulus check failed")
+
     m = secrets.token_bytes(32)
     return ml_kem_encaps_internal(params, ek, m)
 
@@ -54,5 +65,17 @@ def ml_kem_decaps_internal(params: MLKEMParams, dk: bytes, c: bytes) -> bytes:
 
 def ml_kem_decaps(params: MLKEMParams, dk: bytes, c: bytes) -> bytes:
     """Decapsulates ciphertext c and returns shared secret K (Algorithm 21)."""
-    # Prototype simplification: FIPS 203 Section 7.3 decapsulation input validation is omitted.
+    k = params.k
+
+    if len(c) != 32 * (params.du * k + params.dv):
+        raise ValueError("Invalid ciphertext length")
+
+    if len(dk) != 768 * k + 96:
+        raise ValueError("Invalid decapsulation key length")
+
+    ek_pke = dk[384 * k : 768 * k + 32]
+    h = dk[768 * k + 32 : 768 * k + 64]
+    if not secrets.compare_digest(h_hash(ek_pke), h):
+        raise ValueError("Decapsulation key hash check failed")
+
     return ml_kem_decaps_internal(params, dk, c)
