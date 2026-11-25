@@ -1,26 +1,26 @@
-# Krok 1 i 2: parametry i funkcje skrótu
+# Parametry i funkcje skrótu: `params.py` i `crypto_primitives.py`
 
-Opis tego, co robią [src/params.py](../src/params.py) i [src/crypto_primitives.py](../src/crypto_primitives.py), po co to jest i dlaczego kod wygląda tak, jak wygląda. Uzupełnia [Math-Code.md](Math-Code.md): tam jest matematyka całego ML-KEM, tu są szczegóły tych dwóch plików oraz ich testów.
+Ten dokument opisuje dwa pliki: [src/params.py](../src/params.py) i [src/crypto_primitives.py](../src/crypto_primitives.py). Dla każdego wyjaśnia, co w nim jest, po co to jest i dlaczego kod wygląda tak, a nie inaczej, łącznie z mniej oczywistymi elementami Pythona. Na końcu są opisane testy obu plików.
 
-W kodzie są też tymczasowe komentarze z dopiskiem `[TMP]`. Odsyłają do sekcji tego dokumentu i **nie powinny trafić do commita** (usuwanie: [sekcja 5](#5-usuwanie-komentarzy-tmp)).
+Matematyka całego ML-KEM jest w [Math-Code.md](Math-Code.md). Tutaj są szczegóły tych dwóch plików.
 
 ---
 
-## 0. Obraz całości
+## 0. Po co są te dwa pliki
 
-Te dwa pliki to fundament, który nic jeszcze nie szyfruje. Wszystkie pozostałe moduły z nich korzystają:
+Te pliki niczego jeszcze nie szyfrują. To fundament, z którego korzystają wszystkie pozostałe moduły:
 
 ```text
-params.py            -> liczby: Q, N, ZETA, N_INV, k, eta, du, dv
-crypto_primitives.py -> losowość deterministyczna: H, G, J, PRF, XOF
-        |
-        +-- sampling.py     XOF -> macierz A,  PRF -> szum s, e
-        +-- polynomial.py   ZETA, N_INV -> NTT
-        +-- compression.py  Q, du, dv
-        +-- pke.py / kem.py wszystko razem
+params.py            liczby: Q, N, ZETA, N_INV oraz k, eta, du, dv dla każdego wariantu
+crypto_primitives.py funkcje skrótu H, G, J, PRF, XOF
+        │
+        ├── sampling.py     XOF buduje macierz A, PRF daje bajty na szum
+        ├── polynomial.py   ZETA i N_INV są potrzebne do NTT
+        ├── compress.py     Q
+        └── pke.py, kem.py  wszystko razem
 ```
 
-Kluczowy pomysł: ML-KEM potrzebuje dużo losowych bajtów, ale chce je **odtwarzać**. Macierz $A$ nie jest przesyłana, tylko 32-bajtowe ziarno $\rho$, z którego obie strony wyliczają identyczną macierz. Dlatego prawie cała „losowość” po pierwszych 32 bajtach to funkcje skrótu z ziarna: to samo wejście daje zawsze to samo wyjście.
+Najważniejszy pomysł stojący za `crypto_primitives.py`: ML-KEM potrzebuje dużo losowych bajtów, ale chce umieć je **odtworzyć**. Przykład: macierz `A` nie jest przesyłana. W kluczu publicznym jest tylko 32-bajtowe ziarno `rho`, a obie strony wyliczają z niego tę samą macierz. Dlatego prawdziwie losowe są tylko pierwsze 32 bajty (ziarno), a wszystko inne powstaje z nich funkcjami skrótu. Funkcja skrótu dla tego samego wejścia daje zawsze to samo wyjście, ale z wyjścia nie da się odgadnąć wejścia.
 
 ---
 
@@ -28,242 +28,254 @@ Kluczowy pomysł: ML-KEM potrzebuje dużo losowych bajtów, ale chce je **odtwar
 
 ### 1.1 `Q = 3329` i `N = 256`
 
-Pracujemy w pierścieniu $R_q = \mathbb{Z}_{3329}[X]/(X^{256}+1)$, czyli wielomiany mają 256 współczynników modulo 3329. Wartość 3329 wybrano dlatego, że $q - 1 = 3328 = 13 \cdot 2^8$, a to gwarantuje istnienie pierwiastka 256. stopnia z jedynki, którego wymaga NTT (Math-Code §1.1).
+ML-KEM liczy na wielomianach o 256 współczynnikach (`N`), a każdy współczynnik to liczba od 0 do 3328, czyli liczba modulo 3329 (`Q`). Wynik każdego działania bierze się modulo Q, czyli jako resztę z dzielenia przez 3329.
 
-Zasada z CONTRACT §1: liczba 3329 jest wpisana tylko tutaj. Jeśli inny moduł wpisze ją na sztywno, literówka nie wyjdzie jako błąd składni, tylko jako zły klucz trzy moduły dalej.
+Dlaczego akurat 3329? Bo `Q − 1 = 3328 = 13 · 256`. Z tego, że 256 dzieli `Q − 1`, wynika, że modulo Q istnieje liczba, której 256. potęga daje 1 (następny punkt). Bez takiej liczby nie dałoby się zbudować NTT (Math-Code, rozdz. 5).
+
+Zasada z [CONTRACT.md](CONTRACT.md) §1: liczba 3329 jest wpisana tylko w tym pliku, a inne pliki ją importują. Gdyby ktoś wpisał ją ręcznie w innym miejscu i się pomylił, nie dostałby żadnego błędu, tylko zły klucz, i to w zupełnie innym module.
 
 ### 1.2 `ZETA = 17`
 
-To pierwiastek pierwotny 256. stopnia z jedynki modulo $q$. Tak wygląda ciąg kolejnych kwadratów (policzone w Pythonie):
+17 to **pierwiastek pierwotny 256. stopnia z jedynki** modulo Q. Oznacza to dwie rzeczy:
 
-| $e$ | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+1. `17²⁵⁶ mod 3329 = 1`,
+2. żadna mniejsza dodatnia potęga 17 nie daje 1.
+
+Widać to, licząc kolejne kwadraty (każda liczba to kwadrat poprzedniej, modulo 3329):
+
+| wykładnik | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 |
 |---|---|---|---|---|---|---|---|---|---|
-| $17^{2^e} \bmod q$ | 17 | 289 | 296 | 1062 | 2642 | 2580 | 1729 | **3328** | **1** |
+| `17^wykładnik mod Q` | 17 | 289 | 296 | 1062 | 2642 | 2580 | 1729 | **3328** | **1** |
 
-Dlaczego test `pow(17, 256, Q) == 1` i `pow(17, 128, Q) == Q - 1` wystarcza, choć sprawdza tylko dwie potęgi? Z pierwszej równości rząd liczby 17 dzieli 256, więc jest potęgą dwójki. Gdyby był mniejszy niż 256, dzieliłby 128 i wtedy $17^{128}$ byłoby równe 1. Tymczasem wynosi $-1$, więc rząd to dokładnie 256. Ta liczba jest potrzebna, żeby rozłożyć $X^{256}+1$ w NTT.
+`17¹²⁸ = 3328`, a 3328 to −1 modulo Q. Dopiero `17²⁵⁶ = (−1)² = 1`.
+
+**Dlaczego test sprawdza tylko dwie potęgi** (`pow(17, 256, Q) == 1` i `pow(17, 128, Q) == Q − 1`)? Najmniejsza potęga, która daje 1 (tzw. rząd liczby), zawsze dzieli każdą inną potęgę dającą 1. Skoro `17²⁵⁶ = 1`, to rząd dzieli 256, czyli jest jedną z liczb 1, 2, 4, …, 256. Gdyby był mniejszy niż 256, dzieliłby też 128, a wtedy `17¹²⁸` byłoby równe 1. Tymczasem wynosi −1. Zostaje więc tylko 256.
 
 ### 1.3 `N_INV = pow(128, -1, Q)`, czyli 3303
 
-Odwrotność 128 modulo $q$: $128 \cdot 3303 = 422784 = 127 \cdot 3329 + 1$.
+To odwrotność liczby 128 modulo Q: taka liczba, że pomnożona przez 128 daje resztę 1 z dzielenia przez 3329. Sprawdzenie: `128 · 3303 = 422 784 = 127 · 3329 + 1`.
 
-Dlaczego 128, a nie 256? Zwykła NTT wymagałaby pierwiastka 512. stopnia, a takiego modulo 3329 nie ma ($512 \nmid 3328$). Transformata zatrzymuje się więc po 7 warstwach na 128 parach współczynników, a odwrotna NTT dzieli przez $2^7 = 128$ (Math-Code §4.4).
+Jest potrzebna na samym końcu odwrotnej NTT. Odwrotna NTT ma 7 warstw, każda podwaja wartości, więc po wszystkich warstwach wynik jest pomnożony przez `2⁷ = 128`. Mnożenie przez 3303 to cofa.
+
+Dlaczego 128, a nie 256? Pełna NTT miałaby 8 warstw i potrzebowałaby pierwiastka 512. stopnia z jedynki. Takiego modulo 3329 nie ma, bo 512 nie dzieli 3328. NTT w ML-KEM zatrzymuje się więc po 7 warstwach, na 128 parach współczynników (Math-Code, rozdz. 5).
 
 ### 1.4 Zestawy parametrów
 
-| Zestaw | $k$ | $\eta_1$ | $\eta_2$ | $d_u$ | $d_v$ |
+| Zestaw | `k` | `eta1` | `eta2` | `du` | `dv` |
 |---|---|---|---|---|---|
 | ML-KEM-512 | 2 | 3 | 2 | 10 | 4 |
 | ML-KEM-768 | 3 | 2 | 2 | 10 | 4 |
 | ML-KEM-1024 | 4 | 2 | 2 | 11 | 5 |
 
-Znaczenie każdego parametru opisuje Math-Code §1.3. W skrócie: $k$ to rozmiar macierzy, $\eta$ to szerokość szumu, a $d_u, d_v$ to liczba bitów zostawianych po kompresji szyfrogramu.
+- `k`: ile wielomianów ma wektor sekretu, a macierz `A` ma `k × k` wielomianów,
+- `eta1`, `eta2`: jak duży jest szum (współczynniki od `−eta` do `eta`),
+- `du`, `dv`: ile bitów zostaje z każdego współczynnika szyfrogramu po kompresji (pełny współczynnik ma 12 bitów).
+
+Szczegóły w Math-Code, rozdz. 2.3.
 
 ### 1.5 Skąd wzory na rozmiary
 
-Liczba zakodowana na $d$ bitach dla 256 współczynników zajmuje $256 \cdot d / 8 = 32d$ bajtów. Z tego wynika wszystko:
+Wielomian, w którym każdy z 256 współczynników jest zapisany na `d` bitach, zajmuje `256 · d / 8 = 32 · d` bajtów. Przy 12 bitach to 384 bajty. Z tego wynika wszystko:
 
-- **`ek_size = 384k + 32`:** wektor $\hat t$ to $k$ wielomianów po 12 bitów ($32 \cdot 12 = 384$ B każdy) plus ziarno $\rho$ (32 B).
-- **`dk_size = 768k + 96`:** tajny $\hat s$ ($384k$), cały `ek` ($384k + 32$), `H(ek)` (32) i `z` (32). Razem $768k + 96$.
-- **`ct_size = 32(du·k + dv)`:** $k$ wielomianów po $d_u$ bitów plus jeden po $d_v$ bitów.
+- **`ek_size = 384·k + 32`**: wektor `t̂` to `k` wielomianów po 384 bajty, do tego ziarno `rho` (32 bajty),
+- **`dk_size = 768·k + 96`**: sekret `ŝ` (`384·k`), kopia całego `ek` (`384·k + 32`), skrót `H(ek)` (32) i sekret `z` (32), razem `768·k + 96`,
+- **`ct_size = 32·(du·k + dv)`**: `k` wielomianów po `du` bitów i jeden po `dv` bitów.
 
-| Zestaw | `ek` | `dk` | `ct` |
+| Zestaw | `ek` | `dk` | szyfrogram |
 |---|---|---|---|
 | ML-KEM-512 | 800 | 1632 | 768 |
 | ML-KEM-768 | 1184 | 2400 | 1088 |
 | ML-KEM-1024 | 1568 | 3168 | 1568 |
 
-Równość `ek` i `ct` przy 1024 to przypadek arytmetyki, nie zasada.
+To, że przy 1024 `ek` i szyfrogram mają tę samą długość, wynika przypadkiem z arytmetyki i nie jest regułą.
 
-### 1.6 Python w tym pliku
+### 1.6 Elementy Pythona w tym pliku
 
-**`@dataclass(frozen=True)`.** `dataclass` sam generuje `__init__`, `__repr__` i `__eq__` z listy pól. `frozen=True` blokuje zmianę po utworzeniu:
+**`@dataclass(frozen=True)`.** `@dataclass` to dekorator, który na podstawie listy pól sam tworzy konstruktor (`__init__`), czytelne wypisywanie obiektu (`__repr__`) i porównywanie (`__eq__`). `frozen=True` blokuje zmianę pól po utworzeniu obiektu:
 
 ```python
-ML_KEM_768.k = 5   # dataclasses.FrozenInstanceError: cannot assign to field 'k'
+ML_KEM_768.k = 5  # dataclasses.FrozenInstanceError: cannot assign to field 'k'
 ```
 
-To nie kosmetyka. `ML_KEM_768` jest globalną stałą współdzieloną przez wszystkie moduły, więc przypadkowe przypisanie zepsułoby ją w całym programie, po cichu i trudno do wyśledzenia. Efekt uboczny: obiekty są haszowalne, więc mogą być kluczem słownika.
+To nie jest drobiazg. `ML_KEM_768` jest jedną wspólną stałą dla wszystkich modułów. Przypadkowe przypisanie zmieniłoby ją w całym programie, po cichu, i bardzo trudno byłoby znaleźć przyczynę. Dodatkowa korzyść: takie obiekty mogą być kluczami w słowniku.
 
-**`@property`.** `ek_size` jest metodą, ale wywołuje się ją bez nawiasów: `params.ek_size`. Rozmiar wynika z `k`, więc jest liczony, a nie przechowywany. Dzięki temu nie da się utworzyć zestawu z niespójnym rozmiarem. W `frozen` dataclass zwykłe pola też dałyby się ustawić tylko raz, ale wtedy trzeba by je podawać ręcznie.
+**`@property`.** `ek_size` jest napisane jak metoda, ale odczytuje się je bez nawiasów, jak pole: `params.ek_size`. Rozmiar wynika z `k`, więc jest liczony przy odczycie, a nie zapisany osobno. Dzięki temu nie da się utworzyć zestawu z rozmiarem niezgodnym z `k`.
 
-**`pow(128, -1, Q)`.** Trzyargumentowy `pow` liczy potęgę modularnie, a od Pythona 3.8 akceptuje wykładnik `-1`, co oznacza odwrotność modularną. Jeśli odwrotność nie istnieje, rzuca `ValueError`. Dla zwykłych potęg jest też o rzędy wielkości szybszy niż `(a ** b) % Q`, bo nie buduje olbrzymiej liczby pośredniej.
+**`pow(128, -1, Q)`.** `pow` z trzema argumentami liczy potęgę modulo trzeci argument. Od Pythona 3.8 wykładnik `-1` oznacza odwrotność modulo. Gdy odwrotność nie istnieje, `pow` zgłasza `ValueError`. Dla zwykłych potęg jest też dużo szybszy niż `(a ** b) % Q`, bo nie liczy po drodze ogromnej liczby.
 
-**`assert` na poziomie modułu.** Wykonuje się przy każdym `import params`, więc błąd zatrzymałby program od razu. Dwie uwagi:
-- `python -O` usuwa wszystkie `assert`, dlatego w kodzie produkcyjnym nie wolno nimi walidować danych wejściowych. Do tego służy `ValueError` w `prf`.
-- Ten assert jest w praktyce zawsze prawdziwy, skoro `pow` policzył właśnie odwrotność. Pełni rolę czytelnej dokumentacji i wymogu z instrukcji. Prawdziwe zabezpieczenie to test `N_INV == 3303`.
+**`assert` poza funkcją.** Linia `assert 128 * N_INV % Q == 1` wykonuje się przy każdym `import params`, więc błąd zatrzymałby program od razu. Dwie uwagi:
 
-**`MLKEMParams("ML-KEM-512", k=2, ...)`.** Mieszanie argumentów pozycyjnych i nazwanych: `name` podany po kolei, reszta po nazwie, żeby nie pomylić pięciu podobnych liczb.
+- uruchomienie Pythona z opcją `-O` usuwa wszystkie `assert`. Dlatego nie wolno nimi sprawdzać danych od użytkownika. Do tego służy `ValueError`, jak w `prf`,
+- ten konkretny `assert` w praktyce zawsze jest prawdziwy, bo `pow` właśnie policzył odwrotność. Jest bardziej czytelnym opisem niż zabezpieczeniem. Prawdziwym zabezpieczeniem jest test `N_INV == 3303`.
+
+**`MLKEMParams("ML-KEM-512", k=2, ...)`.** Pierwszy argument (`name`) jest podany po kolei, a pozostałe po nazwie. Pięć podobnych do siebie liczb łatwo pomylić, a nazwy pól to uniemożliwiają.
 
 ---
 
 ## 2. `crypto_primitives.py`
 
-### 2.1 Co jest w środku: gąbka Keccak
+### 2.1 Co jest w środku SHA-3
 
-SHA-3 i SHAKE to ten sam Keccak, działający jak gąbka na stanie 1600 bitów. Wejście jest wchłaniane porcjami, potem stan jest mieszany i wyciskane są bajty wyjścia. Parametr `block_size` z `hashlib` to wielkość tej porcji w bajtach:
+SHA-3 i SHAKE to dwie odmiany tej samej konstrukcji, nazywanej Keccak. Działa ona jak **gąbka**: ma wewnętrzny stan o rozmiarze 1600 bitów. Najpierw „wchłania” dane wejściowe porcjami, mieszając stan po każdej porcji, a potem „wyciska” z niego bajty wyniku. Wielkość jednej porcji w bajtach to `block_size` w `hashlib`:
 
-| Funkcja | `block_size` | Długość wyjścia |
+| Funkcja | `block_size` | Długość wyniku |
 |---|---|---|
-| SHA3-256 | 136 | stałe 32 B |
-| SHA3-512 | 72 | stałe 64 B |
+| SHA3-256 | 136 | zawsze 32 B |
+| SHA3-512 | 72 | zawsze 64 B |
 | SHAKE128 | 168 | dowolna |
 | SHAKE256 | 136 | dowolna |
 
-Stąd wartość 168 w testach i 840 ($5 \cdot 168$) w kyber-py: to pełne bloki SHAKE128.
+Stąd liczba 840 w `sample_ntt` (i w kyber-py): `840 = 5 · 168`, czyli pięć pełnych porcji SHAKE128.
 
-SHA3-256 i SHAKE256 mają taki sam blok, ale **nie dają tego samego wyniku** dla 32 bajtów, bo każda funkcja dokleja do wejścia inny dopisek. Dlatego `h_hash` i `j_hash` wyglądają podobnie, a nie są zamienne.
+SHA3-256 i SHAKE256 mają tę samą wielkość porcji, ale **dają różne wyniki** nawet przy tej samej długości 32 bajtów. Każda z tych funkcji dokleja do wejścia inny, krótki dopisek, właśnie po to, żeby ich wyniki się różniły. Dlatego `h_hash` i `j_hash` wyglądają podobnie, ale nie są zamienne.
 
-### 2.2 Która funkcja gdzie jest użyta
+### 2.2 Która funkcja gdzie jest używana
 
-| Funkcja | Definicja | Gdzie w ML-KEM |
+| Funkcja | Co liczy | Gdzie w ML-KEM |
 |---|---|---|
-| `g_hash` | SHA3-512, podział 32 + 32 | KeyGen: `rho, sigma = G(d + bytes([k]))`. Encaps: `K, r = G(m + H(ek))`. Decaps: `K', r' = G(m' + h)` |
-| `h_hash` | SHA3-256 | Skrót klucza: `H(ek)`, zapisany w `dk` |
-| `j_hash` | SHAKE256, 32 B | Niejawne odrzucenie: `K_bar = J(z + c)` |
-| `prf` | SHAKE256(s \|\| b), $64\eta$ B | Bajty dla CBD: szum `s`, `e`, `y`, `e1`, `e2` |
-| `xof` | SHAKE128, dowolna długość | `sample_ntt`: elementy macierzy $\hat A$ |
+| `g_hash` | SHA3-512, wynik dzielony na 32 + 32 B | KeyGen: `rho, sigma = G(d + bytes([k]))`. Encaps: `K, r = G(m + H(ek))`. Decaps: `K', r' = G(m' + h)` |
+| `h_hash` | SHA3-256 | skrót klucza publicznego `H(ek)`, zapisany w `dk` |
+| `j_hash` | SHAKE256, 32 B | klucz zastępczy przy odrzuceniu: `K̄ = J(z + c)` |
+| `prf` | SHAKE256(`s + bytes([b])`), `64·eta` B | bajty dla szumu: `s`, `e`, `y`, `e1`, `e2` |
+| `xof` | SHAKE128, dowolna długość | `sample_ntt`: elementy macierzy `Â` |
 
-Pełny przepływ w KEM:
+Cała droga przez ML-KEM:
 
 ```text
 KeyGen:  d, z losowe
          rho, sigma = G(d || k)
          A   z XOF(rho || j || i)
-         s,e z PRF(sigma, 0), PRF(sigma, 1), ...
+         s, e z PRF(sigma, 0), PRF(sigma, 1), ...
          dk  = dk_pke || ek || H(ek) || z
 
 Encaps:  m losowe
          K, r = G(m || H(ek))
-         c = Encrypt(ek, m, r)                 # r steruje całym szumem
+         c = Encrypt(ek, m, r)                 r wyznacza cały szum szyfrowania
 
 Decaps:  m' = Decrypt(dk_pke, c)
          K', r' = G(m' || h)
-         c' = Encrypt(ek, m', r')              # ponowne szyfrowanie
-         jeśli c' != c: zwróć J(z || c)        # fałszywy klucz zamiast błędu
+         c' = Encrypt(ek, m', r')              ponowne szyfrowanie
+         jeśli c' != c: zwróć J(z || c)        klucz zastępczy zamiast błędu
 ```
 
-Ostatnia linia to niejawne odrzucenie. Atakujący wysyłający spreparowany szyfrogram nie dostaje komunikatu o błędzie, tylko pseudolosowy klucz i nie dowiaduje się, czy deszyfrowanie się udało.
+Symbol `||` to sklejenie ciągów bajtów, w Pythonie `+` na `bytes`.
 
-### 2.3 Szczegóły funkcji
+Ostatnia linia to **niejawne odrzucenie**. Atakujący, który wyśle spreparowany szyfrogram, nie dostaje komunikatu o błędzie, tylko klucz wyglądający na losowy. Nie dowiaduje się więc, czy odszyfrowanie się udało (Math-Code, rozdz. 13).
 
-**`h_hash`:** `hashlib.sha3_256(data)` tworzy obiekt, a `.digest()` zwraca wynik jako `bytes`. Istnieje też `.hexdigest()` zwracający tekst, ale tu potrzebujemy bajtów.
+### 2.3 Funkcja po funkcji
 
-**`j_hash`:** `shake_256(data).digest(32)`. Długość jest obowiązkowa, bo SHAKE z definicji nie ma domyślnej: `digest_size` wynosi u niego 0, a samo `.digest()` daje `TypeError: digest() missing required argument 'length'`.
+**`h_hash`.** `hashlib.sha3_256(data)` tworzy obiekt skrótu, a `.digest()` zwraca wynik jako `bytes`. Istnieje też `.hexdigest()`, które zwraca tekst szesnastkowy, ale tu potrzebujemy bajtów.
 
-**`g_hash`:** 64 bajty dzielone wycinkami `[:32]` i `[32:]`. Adnotacja `tuple[bytes, bytes]` mówi, że zwracana jest para, dzięki czemu można pisać `rho, sigma = g_hash(...)`.
+**`j_hash`.** `hashlib.shake_256(data).digest(32)`. Długość trzeba podać, bo SHAKE z definicji nie ma domyślnej długości wyniku. Samo `.digest()` daje błąd `TypeError: digest() missing required argument 'length'`.
 
-Bajt `k` w `G(d || k)` to separacja domen: to samo ziarno `d` daje zupełnie inne klucze dla ML-KEM-512, 768 i 1024, więc klucze różnych poziomów nie są ze sobą powiązane. Pominięcie tego bajtu było znaną różnicą między draftem a finalnym FIPS 203. Taki błąd daje implementację, która działa sama ze sobą, ale jest niezgodna ze standardem.
+**`g_hash`.** 64 bajty z SHA3-512 są dzielone na dwie połowy wycinkami: `digest[:32]` (bajty 0–31) i `digest[32:]` (bajty 32–63). Adnotacja `tuple[bytes, bytes]` mówi, że funkcja zwraca parę, dzięki czemu można pisać `rho, sigma = g_hash(...)`.
 
-**`prf(eta, s, b)`:**
-- Rozmiar $64\eta$ bajtów to $512\eta$ bitów, czyli $2\eta$ bitów na każdy z 256 współczynników. Tyle zużywa CBD. Dla $\eta = 2$ to 128 B, dla $\eta = 3$ to 192 B.
-- `b` to licznik: to samo `s` i różne `b` dają niezależne strumienie, stąd każdy wielomian szumu ma inne bajty. Powtórzenie `b` oznaczałoby powtórzenie szumu, a to jest katastrofa dla bezpieczeństwa.
-- Walidacja rzuca `ValueError` (CONTRACT §3), bo pomyłka powinna wybuchnąć tutaj, a nie jako zły klucz w `pke.py`.
+Bajt `k` w `G(d + bytes([k]))` sprawia, że to samo ziarno `d` daje zupełnie inne klucze dla ML-KEM-512, 768 i 1024. Klucze różnych poziomów nie są więc ze sobą w żaden sposób powiązane. Takie celowe rozróżnianie wejść różnych zastosowań nazywa się *separacją domen*. Ten bajt był jedną ze znanych różnic między wersją roboczą a ostateczną wersją FIPS 203. Bez niego kod działałby sam ze sobą, ale nie byłby zgodny ze standardem.
 
-**`xof(seed, length)`:** najciekawsza z tych funkcji, bo FIPS 203 opisuje XOF jako strumień (`Init`, `Absorb`, `Squeeze`), a `hashlib` nie ma trybu strumieniowego: każde `.digest(n)` zwraca `n` bajtów od początku. Dlatego kontrakt jest prosty: podajesz ziarno i długość. Działa to dzięki własności prefiksu:
+**`prf(eta, s, b)`.**
+
+1. Sprawdza argumenty: `eta` musi być 2 albo 3, `s` musi mieć 32 bajty, `b` musi mieścić się w jednym bajcie. Inaczej zgłasza `ValueError` (CONTRACT §3). Błędne wywołanie ma się wywrócić od razu tutaj, a nie objawić jako zły klucz w `pke.py`.
+2. Dokleja do `s` jeden bajt `b` i liczy SHAKE256 o długości `64 · eta` bajtów.
+
+Skąd `64 · eta`? To `512 · eta` bitów, czyli `2 · eta` bitów na każdy z 256 współczynników. Dokładnie tyle zużywa losowanie szumu (CBD). Dla `eta = 2` to 128 bajtów, dla `eta = 3` to 192.
+
+`b` to licznik. To samo `s` z różnymi `b` daje zupełnie różne bajty, więc każdy wielomian szumu jest inny. Powtórzenie `b` oznaczałoby dwa identyczne szumy, a to poważnie osłabiłoby bezpieczeństwo.
+
+**`xof(seed, length)`.** FIPS 203 opisuje XOF jako strumień z trzema operacjami: rozpocznij, wchłoń dane, wyciśnij kolejne bajty. `hashlib` tak nie umie: każde `.digest(n)` zwraca `n` bajtów od samego początku. Dlatego nasza funkcja ma prostszą postać: podajesz ziarno i liczbę bajtów. Działa to dzięki temu, że dłuższy wynik SHAKE zaczyna się od krótszego:
 
 ```python
-shake_128(b"x").digest(4).hex()  # e472c5e3
-shake_128(b"x").digest(8).hex()  # e472c5e394f30ff8  <- ten sam początek
+hashlib.shake_128(b"x").digest(4).hex()  # e472c5e3
+hashlib.shake_128(b"x").digest(8).hex()  # e472c5e394f30ff8  (ten sam początek)
 ```
 
-Jeśli `sample_ntt` zabraknie bajtów, prosi o dwa razy więcej i wynik się nie zmienia, tylko kosztuje chwilę więcej. Funkcja celowo nie wie nic o `i` i `j`: kolejność `rho || j || i` jest w jednym miejscu, w `sample_ntt` (CONTRACT §5.1).
+Jeśli `sample_ntt` zabraknie bajtów, prosi o dwa razy więcej. Pierwsze bajty są identyczne, więc wynik się nie zmienia, liczenie trwa tylko chwilę dłużej. `xof` celowo nic nie wie o indeksach `i` i `j`. Kolejność `rho || j || i` jest ustalana w jednym miejscu, w `sample_ntt` (CONTRACT §5.1).
 
-### 2.4 Python w tym pliku
+### 2.4 Elementy Pythona w tym pliku
 
-**`bytes([b])` kontra `bytes(b)`: najgroźniejsza pułapka.** Wyglądają prawie tak samo, a robią coś innego:
+**`bytes([b])` a `bytes(b)`: najgroźniejsza pułapka.** Wyglądają prawie tak samo, a robią coś zupełnie innego:
 
 ```python
-bytes([5])  # b'\x05'                 jeden bajt o wartości 5
-bytes(5)    # b'\x00\x00\x00\x00\x00' pięć bajtów zerowych
+bytes([5])  # b'\x05'                  jeden bajt o wartości 5
+bytes(5)  # b'\x00\x00\x00\x00\x00'  pięć bajtów zerowych
 ```
 
 Pomyłka nie daje żadnego błędu, tylko zły wynik.
 
-**`if eta not in {2, 3}:`** to test przynależności do zbioru `{...}`. Równoważne `eta != 2 and eta != 3`, tylko krótsze.
+**`if eta not in {2, 3}:`** sprawdza, czy `eta` należy do zbioru `{2, 3}`. To krótszy zapis `eta != 2 and eta != 3`.
 
-**`if not 0 <= b <= 255:`** to porównanie łańcuchowe, typowe dla Pythona: znaczy `0 <= b and b <= 255`, a `not` obejmuje całość. W wielu innych językach to by nie zadziałało tak samo.
+**`if not 0 <= b <= 255:`** to porównanie łańcuchowe, typowe dla Pythona. Znaczy to samo co `0 <= b and b <= 255`, a `not` obejmuje całość. W wielu innych językach taki zapis działałby inaczej.
 
-Samo `bytes([256])` też rzuciłoby `ValueError`, ale z mało mówiącym komunikatem `bytes must be in range(0, 256)`. Własny test podaje, który argument jest zły.
+Samo `bytes([256])` też zgłosiłoby `ValueError`, ale z mało pomocnym komunikatem `bytes must be in range(0, 256)`. Własne sprawdzenie mówi, który argument jest zły.
 
-**`f"... {eta}"`** to f-string, czyli wstawienie wartości do tekstu. Dzięki temu w komunikacie widać, co faktycznie przyszło.
-
-**`s + bytes([b])`:** `+` na `bytes` skleja. To jest operator `||` z FIPS 203.
+**`f"... {eta}"`** to tzw. f-string: wstawia wartość zmiennej do tekstu. Dzięki temu w komunikacie o błędzie widać, jaka wartość faktycznie przyszła.
 
 ---
 
 ## 3. Testy
 
-### 3.1 Skąd wiadomo, że to działa
+### 3.1 Zasada: porównanie z niezależną implementacją
 
-Podstawowa zasada: **wyrocznia zamiast samosprawdzania**. Własny kod nie sprawdza sam siebie, tylko jest porównywany z kyber-py, czyli niezależną implementacją. Bez tego bug mógłby być spójny sam ze sobą: np. zamiana `i` i `j` nadal pozwala odszyfrować własne szyfrogramy.
+Nasz kod nie sprawdza sam siebie, tylko jest porównywany z kyber-py, czyli implementacją ML-KEM napisaną przez kogoś innego. Gdyby sprawdzał sam siebie, błąd mógłby być „spójny”: np. zamiana `i` z `j` przy budowie macierzy nadal pozwala odszyfrować własne szyfrogramy, więc test oparty tylko na naszym kodzie by go nie wykrył.
 
-Uczciwe ograniczenie: kyber-py też używa `hashlib`, więc testy hashy nie sprawdzają samego SHA-3. Wyłapują natomiast to, co można zepsuć u nas: zły algorytm, złą długość, złą kolejność sklejania. Test `xof` też nie sprawdza kolejności `j`, `i`: to zadanie testu dla `sample_ntt`.
+Uczciwe ograniczenie: kyber-py też korzysta z `hashlib`, więc testy funkcji skrótu nie sprawdzają samego SHA-3. Wykrywają natomiast błędy, które możemy popełnić my: zły algorytm, złą długość wyniku, złą kolejność sklejania. Test `xof` nie sprawdza też kolejności `j`, `i`. To zadanie testów `sample_ntt` w `test_sampling.py`.
 
-### 3.2 Co sprawdza `test_crypto_primitives.py`
+### 3.2 `tests/test_crypto_primitives.py` (23 przypadki)
 
-| Test | Co dowodzi |
+| Test | Co sprawdza |
 |---|---|
-| `test_hashes_match_kyber_py` | H, J, G zgodne z wyrocznią, także dla pustego i długiego wejścia |
-| `test_hash_output_lengths` | Wyjścia mają po 32 B |
-| `test_prf_matches_kyber_py` | PRF zgodny dla wszystkich kombinacji $\eta$ i `b`, także skrajnych 0 i 255 |
-| `test_xof_matches_kyber_py` | Wynik `xof` taki sam jak `_xof` |
-| `test_xof_longer_output_extends_shorter_one` | Własność prefiksu, na której polega `sample_ntt` |
-| `test_g_with_k_domain_separation_gives_rho_of_ek` | `G(d \|\| k)` daje $\rho$ z prawdziwego `ek_pke`, a `G(d)` nie |
-| `test_prf_rejects_invalid_arguments` | Złe argumenty dają `ValueError` |
-| `test_xof_rejects_negative_length` | Jak wyżej dla długości |
+| `test_hashes_match_kyber_py` | H, J i G dają to samo co kyber-py, także dla pustego i długiego wejścia |
+| `test_hash_output_lengths` | wyniki mają po 32 bajty |
+| `test_prf_matches_kyber_py` | PRF zgodny z kyber-py dla obu `eta` i kilku `b`, w tym skrajnych 0 i 255 |
+| `test_xof_matches_kyber_py` | `xof` zgodny z kyber-py |
+| `test_xof_longer_output_extends_shorter_one` | dłuższy wynik zaczyna się od krótszego (na tym opiera się `sample_ntt`) |
+| `test_g_with_k_domain_separation_gives_rho_of_ek` | `G(d ‖ k)` daje `rho` równe końcówce prawdziwego klucza publicznego, a `G(d)` nie |
+| `test_prf_rejects_invalid_arguments` | złe argumenty `prf` dają `ValueError` |
+| `test_xof_rejects_negative_length` | ujemna długość daje `ValueError` |
 
-Druga asercja w teście `G` to kontrola negatywna: upewnia się, że test nie przeszedłby, gdyby bajt `k` nie miał znaczenia. Dobry test musi umieć się nie udać.
+Druga część testu `G` to tzw. kontrola negatywna. Sprawdza, że test nie przeszedłby, gdyby bajt `k` nie miał znaczenia. Dobry test musi umieć się nie udać.
 
-### 3.3 Python i pytest
+### 3.3 `tests/test_params.py` (2 testy)
 
-**`@pytest.mark.parametrize("data", [...])`** uruchamia ten sam test dla każdej wartości i raportuje je osobno, więc wiadomo, który przypadek padł.
+- `test_ring_constants`: `17²⁵⁶ = 1`, `17¹²⁸ = −1`, `N_INV == 3303` i `128 · N_INV mod Q == 1`,
+- `test_parameter_sets_match_kyber_py_and_encoded_sizes`: parametry każdego zestawu zgadzają się z kyber-py, a wyliczone `ek_size`, `dk_size` i `ct_size` są równe długościom prawdziwych kluczy i szyfrogramu wygenerowanych przez kyber-py.
 
-**Dwa `parametrize` jeden na drugim** dają iloczyn kartezjański. W `test_prf_matches_kyber_py` to $2 \cdot 3 = 6$ przypadków. Stąd 28 testów w raporcie, choć funkcji testowych jest mniej.
+### 3.4 Elementy Pythona i pytest w testach
 
-**Parametryzacja wieloma nazwami:** `("eta", "s", "b")` z listą trójek rozpakowuje każdą trójkę na trzy argumenty.
+**`@pytest.mark.parametrize("data", [...])`** uruchamia ten sam test dla każdej wartości z listy i raportuje każdy przypadek osobno. Gdy coś padnie, od razu widać, dla jakich danych.
 
-**`with pytest.raises(ValueError):`** test przechodzi tylko wtedy, gdy blok rzuci ten wyjątek. Jeśli funkcja zwróci wynik, test pada.
+**Dwa `parametrize` jeden nad drugim** dają wszystkie kombinacje. Jeśli jeden ma 2 wartości, a drugi 3, test uruchomi się 6 razy. Dlatego w raporcie jest 23 przypadki, choć funkcji testowych jest 8.
 
-**`_H`, `_prf`, `_k_pke_keygen`:** podkreślenie oznacza metodę prywatną, która może się zmienić między wersjami. Świadomy kompromis z CONTRACT §7: dlatego kyber-py ma być przypięty do `1.2.0`. Na tej gałęzi `pyproject.toml` ma jeszcze `>=1.0.0`, przypięcie jest na `contract-and-attributes`.
+**Parametryzacja kilkoma nazwami naraz:** `("eta", "s", "b")` z listą trójek rozpakowuje każdą trójkę na trzy argumenty testu.
 
-**`from kyber_py.ml_kem import ML_KEM_768 as KYBER_ML_KEM_768`:** alias jest konieczny, bo nazwa pokrywa się z naszą stałą. Co ważne, to różne obiekty: nasz jest samą listą parametrów, a ten z kyber-py umie generować klucze.
+**`with pytest.raises(ValueError):`** test przechodzi tylko wtedy, gdy kod w bloku zgłosi ten wyjątek. Jeśli funkcja zwróci wynik bez błędu, test pada.
 
-**`from params import Q` bez `src.`** działa dzięki `pythonpath = ["src"]` w `pyproject.toml`. Bez pytesta i bez tego ustawienia import by się nie udał.
+**`_H`, `_prf`, `_k_pke_keygen` z kyber-py:** podkreślenie na początku nazwy oznacza w Pythonie metodę wewnętrzną, która może się zmienić w nowej wersji biblioteki. Korzystamy z nich świadomie (CONTRACT §8), dlatego kyber-py jest przypięte do wersji `1.2.0` w `requirements.txt` i `pyproject.toml`.
 
-**`ML_KEM(DEFAULT_PARAMETERS[kyber_name])`** tworzy obiekt kyber-py ze słownika parametrów. `params.name.replace("ML-KEM-", "ML")` zamienia naszą nazwę na klucz kyber-py, np. `ML768`.
+**`from kyber_py.ml_kem import ML_KEM_768 as KYBER_ML_KEM_768`:** alias (`as …`) jest konieczny, bo nazwa pokrywa się z naszą stałą. To różne obiekty: nasz to tylko zestaw liczb, a obiekt z kyber-py umie generować klucze.
 
-**`bytes(range(32))`** daje bajty 0, 1, ..., 31. To ustalone ziarno, dzięki czemu test zachowuje się tak samo przy każdym uruchomieniu.
+**`from params import Q` bez `src.`** działa dzięki ustawieniu `pythonpath = ["src"]` w `pyproject.toml`. Bez pytesta (albo bez tego ustawienia) taki import by się nie udał.
 
-**Dziwna kolejność importów w `test_params.py`** (`N_INV, ZETA, MLKEMParams, N, Q`): to nie pomyłka, tylko sortowanie ruffa. Najpierw stałe, potem klasy. Jednoliterowe `N` i `Q` są traktowane jak klasy, bo stałą jest dla niego nazwa z samych wielkich liter dłuższa niż jeden znak.
+**`ML_KEM(DEFAULT_PARAMETERS[kyber_name])`** tworzy obiekt kyber-py ze słownika parametrów. `params.name.replace("ML-KEM-", "ML")` zamienia naszą nazwę na klucz używany w kyber-py, np. `"ML-KEM-768"` na `"ML768"`.
 
-**`test_primitives.py`** sprawdza tylko środowisko (NumPy, hashlib, kyber-py). Używa `int32`, a CONTRACT §2.1 ustala `int64` dla wielomianów. W tym teście nie ma to znaczenia, ale nie należy tego przenosić do `polynomial.py`.
+**`bytes(range(32))`** daje 32 bajty o wartościach 0, 1, …, 31. To ustalone ziarno, więc test przy każdym uruchomieniu robi dokładnie to samo.
+
+**Kolejność importów w `test_params.py`** (`ML_KEM_512, …, N_INV, ZETA, MLKEMParams, N, Q`) wygląda na przypadkową, ale to automatyczne sortowanie narzędzia ruff. Najpierw idą nazwy uznane za stałe (same wielkie litery, więcej niż jeden znak), potem nazwy uznane za klasy. Jednoliterowe `N` i `Q` ruff traktuje jak klasy.
+
+**`tests/test_primitives.py`** sprawdza tylko, czy środowisko działa (NumPy, `hashlib`, kyber-py). Używa `int32`, choć CONTRACT §2.1 ustala `int64` dla wielomianów. W tym teście to bez znaczenia, ale nie należy przenosić tego do kodu.
 
 ---
 
-## 4. Ściąga: najdziwniejsze miejsca
+## 4. Ściąga: miejsca, które wyglądają inaczej, niż działają
 
 | Miejsce | Wygląda jak | Naprawdę |
 |---|---|---|
-| `pow(128, -1, Q)` | Potęga ujemna | Odwrotność modularna |
-| `params.ek_size` | Pole | Metoda liczona przy każdym odczycie |
-| `frozen=True` | Drobna opcja | Ochrona globalnej stałej przed zmianą |
-| `assert` w module | Walidacja | Znika po `python -O` |
-| `bytes([b])` | To samo co `bytes(b)` | Jeden bajt, a nie `b` zer |
-| `.digest(32)` | Argument opcjonalny | W SHAKE obowiązkowy |
-| `G(d + bytes([k]))` | Nadmiarowy bajt | Separacja domen wymagana przez FIPS 203 |
-| `xof(seed, length)` | Uproszczenie | Działa dzięki własności prefiksu SHAKE |
-| `0 <= b <= 255` | Dwa porównania | Jedno wyrażenie łańcuchowe |
-| Dwa `parametrize` | Dwa przebiegi | Iloczyn kartezjański |
-
----
-
-## 5. Usuwanie komentarzy `[TMP]`
-
-Każdy tymczasowy komentarz zajmuje całą linię i zawiera `[TMP]`, więc usunięcie tych linii przywraca kod dokładnie do stanu bez komentarzy. Przed commitem uruchom w **Git Bash**, w katalogu projektu:
-
-```bash
-git grep --untracked -l "\[TMP\]" -- src tests | xargs -d '\n' sed -b -i '/\[TMP\]/d'
-git grep --untracked -n "\[TMP\]" -- src tests
-```
-
-Drugie polecenie nie powinno niczego wypisać. Flaga `-b` jest potrzebna: bez niej `sed` w Git Bash zamienia końce wierszy CRLF na LF, a `tests/test_params.py` ma CRLF.
+| `pow(128, -1, Q)` | potęga ujemna | odwrotność modulo Q |
+| `params.ek_size` | pole | metoda liczona przy każdym odczycie |
+| `frozen=True` | drobna opcja | ochrona wspólnej stałej przed zmianą |
+| `assert` poza funkcją | sprawdzanie danych | znika po `python -O` |
+| `bytes([b])` | to samo co `bytes(b)` | jeden bajt, a nie `b` bajtów zerowych |
+| `.digest(32)` w SHAKE | argument opcjonalny | argument obowiązkowy |
+| `G(d + bytes([k]))` | zbędny bajt | wymagany przez ostateczny FIPS 203 |
+| `xof(seed, length)` | uproszczenie | działa, bo dłuższy SHAKE zaczyna się od krótszego |
+| `0 <= b <= 255` | dwa porównania | jedno wyrażenie łańcuchowe |
+| dwa `parametrize` | dwa przebiegi | wszystkie kombinacje wartości |

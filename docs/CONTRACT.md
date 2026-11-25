@@ -13,6 +13,8 @@ need to agree on and **why**, with references to NIST FIPS 203. Please confirm t
 |---|---|---|
 | `N` | 256 | Number of coefficients of a polynomial in `R_q = Z_q[X]/(X^256 + 1)` |
 | `Q` | 3329 | Prime modulus. `Q - 1 = 3328 = 2^8 * 13`, so a primitive 256-th root of unity exists mod `Q` (`zeta = 17`) |
+| `ZETA` | 17 | Primitive 256-th root of unity mod `Q`: `17^256 = 1` and `17^128 = Q - 1` (FIPS 203, Section 4.3) |
+| `N_INV` | 3303 | `128^-1 mod Q`, the final factor of `inv_ntt` (the NTT has 7 layers, so it is `128^-1`, not `256^-1`) |
  
 Parameter sets (FIPS 203, Section 8, Table 2):
  
@@ -22,7 +24,8 @@ Parameter sets (FIPS 203, Section 8, Table 2):
 | ML-KEM-768 | 3 | 2 | 2 | 10 | 4 |
 | ML-KEM-1024 | 4 | 2 | 2 | 11 | 5 |
  
-`N` and `Q` live in `src/params.py` and are imported from there; no module hard-codes `3329`.
+`N`, `Q`, `ZETA` and `N_INV` live in `src/params.py` and are imported from there; no module
+hard-codes `3329`.
  
 ---
  
@@ -36,8 +39,8 @@ A polynomial `f = f_0 + f_1 X + ... + f_255 X^255` is a NumPy array:
 - **dtype** `np.int64`;
 - **values** in the canonical range `[0, Q)` on every function **output**.
 *Why `int64` and not `int32`:* a single product of two coefficients is below `3329^2 ≈ 1.1 * 10^7`,
-which fits in `int32`, but NTT multiplication and the matrix-vector product `Â ∘ ŝ` sum several such
-products before reducing. With `int64` there is no risk of silent overflow (NumPy does not raise on
+which fits in `int32`, but schoolbook multiplication and the matrix-vector product `Â ∘ ŝ` sum several
+such products before reducing (`schoolbook_mul` reaches `256 * 3328^2 ≈ 2.8 * 10^9 > 2^31`). With `int64` there is no risk of silent overflow (NumPy does not raise on
 integer overflow, it wraps around), and the performance cost is irrelevant for this project.
  
 *Why `[0, Q)` and not signed values:* FIPS 203 defines every intermediate value as an element of
@@ -58,6 +61,7 @@ whole vector `u` at once.
 Arrays do not carry a flag saying whether they are in the normal or the NTT domain. By convention,
 variable names with a `_hat` suffix (`a_hat`, `s_hat`) are in the NTT domain, matching the `^`
 notation in FIPS 203. Note that `sample_ntt` returns a polynomial **already in the NTT domain**.
+Which functions expect and return which domain is listed in Section 7.
  
 ### 2.4 Bytes and bits
  
@@ -82,7 +86,11 @@ standard requires it.
  
 ---
  
-## 4. `src/compression.py` (owner: Person 2)
+## 4. `src/compress.py` (owner: Person 2)
+
+The module was called `compression.py` at first. Python 3.14 ships a standard-library package with
+that name, which pytest imports before our `src/` directory is on the path, so `pke.py` received the
+standard-library module instead of ours. It was renamed to `compress.py`.
  
 ### 4.1 `compress(d: int, x: np.ndarray) -> np.ndarray`
 ### `decompress(d: int, y: np.ndarray) -> np.ndarray`
@@ -192,40 +200,126 @@ independent `Binomial(eta, 1/2)` variables, so it lies in `[-eta, eta]`, has mea
  
 ---
  
-## 6. `src/crypto_primitives.py` [OPEN: owner to confirm]
- 
-`docs/project_notes.md` assigns this file to Person 2, while the current task list does not.
-`sample_ntt` and `pke.py` depend on it, so the signatures must be fixed:
- 
-| Function | Signature | Definition (FIPS 203, Section 4.1) |
+## 6. `src/crypto_primitives.py` (owner: Person 1)
+
+FIPS 203, Section 4.1. Thin wrappers around `hashlib`; all inputs and outputs are `bytes`.
+
+| Function | Signature | Definition |
 |---|---|---|
 | `h_hash` | `(data: bytes) -> bytes` | `SHA3-256(data)`, 32 bytes |
 | `j_hash` | `(data: bytes) -> bytes` | `SHAKE256(data, 32 bytes)` |
 | `g_hash` | `(data: bytes) -> tuple[bytes, bytes]` | `SHA3-512(data)` split into two 32-byte halves |
-| `prf` | `(eta: int, s: bytes, b: int) -> bytes` | `SHAKE256(s \|\| bytes([b]), 64 * eta bytes)`, `len(s) == 32` |
-| `xof` | **[OPEN]** see below | `SHAKE128` |
- 
-**[OPEN] `xof`:** the current stub `xof(rho, i, j)` does not say what it returns or in which order
-it concatenates `i` and `j`. Python's `hashlib.shake_128` is not a stream: it returns a fixed number
-of bytes per call. Proposal:
- 
-```python
-def xof(seed: bytes, length: int) -> bytes:
-    """SHAKE128(seed) truncated to `length` bytes."""
-```
- 
-with `sample_ntt` building `seed = rho + bytes([j, i])` itself. This keeps the index order in one
-place (5.1) instead of two.
- 
-Until this is decided, `sample_ntt` may call `hashlib.shake_128` directly.
- 
+| `prf` | `(eta: int, s: bytes, b: int) -> bytes` | `SHAKE256(s \|\| bytes([b]), 64 * eta bytes)` |
+| `xof` | `(seed: bytes, length: int) -> bytes` | `SHAKE128(seed)` truncated to `length` bytes |
+
+- `prf` raises `ValueError` unless `eta in {2, 3}`, `len(s) == 32` and `0 <= b <= 255`.
+- `xof` raises `ValueError` for a negative `length`.
+- `g_hash` is called with `d + bytes([k])` in K-PKE.KeyGen (FIPS 203, Algorithm 13, line 1), not
+  with `d` alone. The extra byte `k` was added in the final FIPS 203; without it the keys still
+  work with our own code but differ from every other implementation.
+
+*Why `xof(seed, length)` and not a stream:* FIPS 203 describes the XOF as a stream (`Init`,
+`Absorb`, `Squeeze`), but `hashlib.shake_128` returns a fixed number of bytes per call. A caller that
+needs more bytes asks again with a larger `length`; the result starts with the shorter one, so the
+first bytes do not change. `xof` knows nothing about the indices `i`, `j`: `sample_ntt` builds
+`seed = rho + bytes([j, i])` itself, which keeps the index order in one place (5.1).
+
 ---
- 
-## 7. Testing conventions
+
+## 7. `src/polynomial.py` (owner: Person 1)
+
+FIPS 203, Sections 2.4 and 4.3. Shapes, dtypes and value ranges follow Section 2:
+a polynomial is `(256,)`, a vector `(k, 256)`, a matrix `(k, k, 256)`, all `np.int64`, and every
+**output** is in `[0, Q)`. Inputs are not range-checked: any integers are accepted and reduced
+mod `Q`. No function modifies its arguments.
+
+### 7.1 Which domain each function works in
+
+| Function | Input | Output | Domain | FIPS 203 |
+|---|---|---|---|---|
+| `poly_add(a, b)`, `poly_sub(a, b)` | equal shapes ending in 256 | same shape | either (the NTT is linear) | Section 2.4.5 |
+| `schoolbook_mul(a, b)` | `(256,)`, `(256,)` | `(256,)` | normal | none (test reference) |
+| `ntt(f)` | `(256,)` | `(256,)` | normal → NTT | Algorithm 9 |
+| `inv_ntt(f_hat)` | `(256,)` | `(256,)` | NTT → normal | Algorithm 10 |
+| `base_case_multiply(a0, a1, b0, b1, gamma)` | five `int` | `tuple[int, int]` | one NTT pair | Algorithm 12 |
+| `multiply_ntts(f_hat, g_hat)` | `(256,)`, `(256,)` | `(256,)` | NTT | Algorithm 11 |
+| `ntt_vec(v)` | `(k, 256)` | `(k, 256)` | normal → NTT | — |
+| `inv_ntt_vec(v_hat)` | `(k, 256)` | `(k, 256)` | NTT → normal | — |
+| `transpose(a_hat)` | `(k, k, 256)` | `(k, k, 256)` | either | — |
+| `dot(u_hat, v_hat)` | `(k, 256)`, `(k, 256)` | `(256,)` | NTT | Section 2.4.7 |
+| `matvec(a_hat, v_hat)` | `(k, k, 256)`, `(k, 256)` | `(k, 256)` | NTT | Section 2.4.7 |
+
+**`dot` and `matvec` multiply with `multiply_ntts`, so both arguments must already be in the NTT
+domain and the result is in the NTT domain.** Passing normal-domain polynomials raises no error; it
+just gives a meaningless result. This is why NTT-domain variables carry the `_hat` suffix (2.3).
+
+### 7.2 Semantics
+
+- `poly_add` and `poly_sub` work coefficient-wise, so they also accept vectors `(k, 256)`; there is
+  no separate `vec_add`.
+- `schoolbook_mul` computes the full product of degree `<= 510` and wraps it with `X^256 = -1`:
+  `(c[:256] - c[256:]) % Q`. It is slow (65 536 coefficient products) and exists as an independent
+  reference for the NTT tests.
+- `ntt(f)` returns 128 pairs: positions `2i` and `2i + 1` hold `f mod (X^2 - GAMMAS[i])`, as
+  `a + b X`. Example: `ntt(X^2)` is `[GAMMAS[0], 0, GAMMAS[1], 0, ...]`.
+- `inv_ntt(ntt(f)) == f` for every `f`, and
+  `inv_ntt(multiply_ntts(ntt(f), ntt(g))) == schoolbook_mul(f, g)`.
+- `matvec(a_hat, v_hat)[i] = dot(a_hat[i], v_hat)`. The transposed product `Â^T ∘ ŷ` of
+  K-PKE.Encrypt is written `matvec(transpose(a_hat), y_hat)`.
+- `transpose` swaps only the first two axes (`np.transpose(a, (1, 0, 2))`). Plain `a.T` would also
+  reverse the coefficient axis.
+- `*` and `@` on NumPy arrays do **not** multiply polynomials; use `schoolbook_mul`,
+  `multiply_ntts`, `dot` or `matvec`.
+
+### 7.3 Tables
+
+```
+ZETAS[i]  = 17^BitRev7(i)       mod Q    i = 0..127, used by ntt / inv_ntt
+GAMMAS[i] = 17^(2*BitRev7(i)+1) mod Q    i = 0..127, used by multiply_ntts
+```
+
+`BitRev7(i)` reverses the 7 bits of `i` (e.g. `1 -> 64`). Both tables are computed at import and
+match FIPS 203, Appendix A (`ZETAS` starts `1, 1729, 2580, 3289`, `GAMMAS` starts
+`17, 3312, 2761, 568`). `ntt` uses `ZETAS[1]` to `ZETAS[127]`; `ZETAS[0] = 1` is never used.
+
+### 7.4 Errors
+
+`ValueError` is raised when:
+
+- the two arguments of `poly_add`, `poly_sub`, `schoolbook_mul` or `multiply_ntts` have different
+  shapes or a last axis other than 256,
+- `schoolbook_mul`, `ntt`, `inv_ntt` or `multiply_ntts` get anything other than a single `(256,)`
+  polynomial (this also applies to each row given to `ntt_vec` / `inv_ntt_vec`),
+- `dot` gets vectors of different lengths (so `matvec` raises when the row length differs from
+  the length of the vector).
+
+### 7.5 Use in `pke.py` (target, Phase 2)
+
+```python
+s_hat = ntt_vec(s)
+t_hat = poly_add(matvec(a_hat, s_hat), ntt_vec(e))  # KeyGen: ek encodes t_hat
+y_hat = ntt_vec(y)
+u = poly_add(inv_ntt_vec(matvec(transpose(a_hat), y_hat)), e1)  # Encrypt
+v = poly_add(poly_add(inv_ntt(dot(t_hat, y_hat)), e2), mu)  # Encrypt
+w = poly_sub(v, inv_ntt(dot(s_hat, ntt_vec(u))))  # Decrypt
+```
+
+`e1`, `e2` and `mu` are added in the normal domain, after `inv_ntt`. Since PR #9 (17.11.2026)
+`pke.py` uses exactly these calls, and `test_k_pke_matches_kyber_py_oracle` and
+`test_ml_kem_internal_deterministic_matches_oracle` confirm byte-for-byte agreement with kyber-py.
+
+---
+
+## 8. Testing conventions
  
 - The reference oracle is `kyber-py==1.2.0`, pinned exactly in `requirements.txt` and
   `pyproject.toml`. Tests use some of its internal methods (`_compress_ele`, `ntt_sample`, `cbd`,
-  `_generate_matrix_from_seed`), which may change in other versions; the pin keeps tests stable.
+  `_generate_matrix_from_seed`, `_H`, `_G`, `_J`, `_prf`, `_xof`, `_k_pke_keygen`,
+  `_keygen_internal`, `_encaps_internal`), which may change in other versions; the pin keeps tests
+  stable.
+- Shared helpers live in `tests/conftest.py`: `to_kyber`, `to_kyber_ntt` and `from_kyber` convert
+  between our arrays and kyber-py polynomials, `random_poly(rng)` draws a polynomial in `[0, Q)`,
+  and the fixture `rng` is a generator with a fixed seed.
 - `kyber-py` is imported only under `tests/`, never in `src/`.
 - Tests that compare with the oracle convert our arrays with `.tolist()` and compare with the
   oracle's `.coeffs` lists.

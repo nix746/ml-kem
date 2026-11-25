@@ -82,3 +82,72 @@
     - determinizm wersji `_internal`
     - złe długości `ek` / `dk` / `c` dają `ValueError`; `ek` ze współczynnikiem `≥ Q` jest odrzucany
 
+
+# Faza 3: wizualizacje i raport
+
+**Cel:** zestaw wykresów i raport
+**Termin:** 30.12 
+**Założenie:** Wizualizacje tylko importują funkcje z `src/`, a jeśli trzeba coś podmienić (np. skalę szumu), kopiują funkcję do skryptu, tak jak robi to `demo.py`.
+
+## Przebieg
+
+- Krok po kroku pokazuje istniejące `demo.py --pause` w terminalu. Wykresy robimy w matplotlib, każdy jako osobny skrypt w `viz/`, który zapisuje PNG do `viz/out/`. Te same pliki trafiają do raportu i na slajdy lub przy odpalaniu z terminala jakoś je wyświetlić w odpowiednim momencie
+- Najważniejsze są punkty 5 i 6: pokazują, że deszyfrowanie działa tylko dzięki temu, że szum jest mały, i co się dzieje, gdy przestaje być mały. Reszta wykresów prowadzi do tego momentu.
+- Okrąg `Z_q` (punkty 4–6) to jedna wspólna funkcja: kąt `2π·x/q` na wykresie 
+- Wykresy są jednocześnie eksperymentami do sekcji 4 raportu (Experiments, 30 pkt), więc każdy wykres ma mieć krótki opis: co mierzymy, jakie parametry, co z tego wynika.
+
+## Lista wizualizacji
+
+1. **Schemat wymiany klucza Alice ↔ Bob:** KeyGen → `ek` → Encaps → `c` → Decaps → `K`, przy strzałkach rozmiary w bajtach dla 512 / 768 / 1024 (`ek` 800 / 1184 / 1568, `dk` 1632 / 2400 / 3168, `c` 768 / 1088 / 1568, `K` 32). Prosty, ale bez niego reszta nie ma kontekstu. Otwiera raport i prezentację.
+2. **Próbkowanie CBD:** histogram współczynników z `sample_poly_cbd` dla `η = 2` i `η = 3` na tle rozkładu teoretycznego. Pokazuje, że szum jest mały i skupiony wokół zera.
+3. **Kompresja:** wykres schodkowy `x → decompress(compress(x))` dla `d = 1, 4, 10, 11` i wykres błędu zaokrąglenia z granicami. Pokazuje, że kompresja dokłada kolejny mały błąd.
+4. **Kodowanie wiadomości na okręgu `Z_q`:** bit 0 → 0, bit 1 → ⌈q/2⌉, zaznaczone obszary decyzji (odległość q/4).
+5. **Dlaczego deszyfrowanie działa:** prawdziwe współczynniki `w = v − ŝᵀu` na tym samym okręgu (i jako histogram). Widać szum wokół 0 i q/2, wszystkie punkty mieszczą się w marginesie q/4.
+6. **Zwiększanie szumu aż do błędów:** mnożymy `e`, `e1`, `e2` przez 1, 2, 4, 8… Okręgi dla kilku czynników, na których punkty wychodzą poza margines, i krzywa „czynnik szumu → % błędnych bitów `m`”. Wymaga kopii `k_pke_encrypt` / `k_pke_keygen` z parametrem skali w skrypcie.
+7. **Problem LWE na zabawkowym przykładzie:** 1D, małe `q` (np. 97), jeden sekret `s`. Wykres punktowy par `(a, b = a·s + e mod q)`: bez szumu punkty leżą na prostych i `s` łatwo odczytać, z szumem jest chmura. Tłumaczy, skąd bierze się bezpieczeństwo.
+8. **Wydajność:** czas KeyGen / Encaps / Decaps dla trzech wariantów, `time.perf_counter()`, kilkaset powtórzeń, wykres słupkowy. Porównujemy tylko nasze warianty między sobą, nie z implementacjami w C.
+
+## Raport (po angielsku)
+
+| Sekcja | Pkt | Co tam wchodzi | Kto |
+|---|---|---|---|
+| 1 Introduction | 5 | Dlaczego PQC (komputery kwantowe, „harvest now, decrypt later”), cel projektu (implementacja ML-KEM zgodna z FIPS 203 bit w bit), metodologia (implementacja w Pythonie, weryfikacja względem kyber-py, wizualizacje) | Kacper |
+| 2 Background | 10 | KEM vs szyfrowanie, LWE → Module-LWE, pierścień `Z_q[X]/(X²⁵⁶+1)`, NTT, K-PKE i transformacja Fujisakiego–Okamoto (implicit rejection), parametry 512 / 768 / 1024. Tu trafiają wykresy 1, 4 i 7 | Kacper |
+| 3 Testbed Setup (Implementation) | 30 | Środowisko (Python, numpy, pytest, ruff, `kyber-py==1.2.0`), struktura repo, podział na moduły, dwie fazy (prototyp na mnożeniu zwykłym → NTT), `CONTRACT.md`. Każdy opisuje moduły, które pisał w fazach 1–2 | wstęp i środowisko: Martyna; podrozdziały: każdy swoje moduły |
+| 4 Experiments (Validation) | 30 | 4.1 testy jednostkowe i zgodności z kyber-py (bit w bit, interop, implicit rejection, kontrola wejść) w tabeli; 4.2+ eksperymenty z wykresów 2, 3, 5, 6, 8 | wstęp i tabela testów: Tymon; podrozdziały: każdy swoje wykresy |
+| 5 Conclusions | 10 | Wkład, czy cel osiągnięty, ograniczenia (brak stałego czasu wykonania, Python, nie do produkcji), future work (constant-time, ML-DSA, testy KAT z NIST, ACVP) | Tymon i Martyna  |
+| References | 5 | FIPS 203, praca Kyber (Bos i in., 2018), Regev 2005 (LWE), Langlois–Stehlé (Module-LWE), repozytorium kyber-py, strona NIST PQC.  | Trzeba cytować chyba |
+| Overall quality | 10 |  |  |
+
+### Wytyczne formatowania (z wytycznych prowadzącego, w skrócie)
+
+- Każdy rysunek ma podpis, każda tabela ma nagłówek **nad** tabelą. Numeracja ciągła, w tekście odwołanie po numerze („Fig. 3 shows…”, nie „the figure below”). Każdy rysunek i tabela musi być przywołana w tekście.
+- Rysunki jako PNG albo wektorowo (PDF/SVG), nigdy JPEG. Rysunki z cudzych prac podpisane źródłem.
+- Rozdziały i podrozdziały numerowane, tytuły wielką literą, bez kropki i dwukropka na końcu (to samo w podpisach). Abstract bez numeru. Tytuł raportu w title case.
+- Każdy rozdział zaczyna się kilkoma zdaniami wstępu, dopiero potem podrozdział. Koniec rozdziału ma prowadzić do następnego.
+- Akapity wyjustowane, równe wcięcie, bez akapitów jednozdaniowych i dłuższych niż 1/3 strony.
+- Skrót rozwijamy przy pierwszym użyciu (KEM, LWE, NTT, CBD, FIPS…). Jednolita terminologia w całym tekście.
+- Jednostki ze spacją („5 ms”, „1184 B”), ale „50%”. Separator dziesiętny to kropka. Liczby poniżej 10 słownie („three variants”).
+- Cytowanie przed kropką ze spacją: „…as defined in FIPS 203 [1].”
+- Jedna czcionka, jeden styl (strona bierna albo „we”, nie mieszamy). Myślnik jako en-dash (`--` w LaTeX-u).
+- Na koniec: spell check, podwójne spacje, spacje przed przecinkami i po nawiasach otwierających.
+
+## Kacper
+
+- `viz/circle.py`: wspólna funkcja rysowania okręgu `Z_q` (najpierw, bo korzysta z niej Tymon)
+- Wykres 4 (kodowanie wiadomości) i 5 (szum w deszyfrowaniu)
+- Wykres 7 (LWE)
+- Raport: 1 Introduction, 2 Background, podrozdziały 3 i 4 o swoich modułach i wykresach
+
+## Martyna
+
+- Wykres 1 (schemat Alice ↔ Bob)
+- Wykres 2 (CBD) i 3 (kompresja)
+- Raport: wstęp sekcji 3 i opis środowiska, podrozdziały 3 i 4 o swoich modułach i wykresach, końcowe przejście pod kątem wytycznych (Overall quality)
+
+## Tymon
+
+- Wykres 6 (zwiększanie szumu), oparty na `viz/circle.py`
+- Wykres 8 (wydajność), jeśli zostanie w raporcie
+- Raport: wstęp sekcji 4 i tabela testów, 5 Conclusions, References, podrozdziały 3 i 4 o swoich modułach i wykresach
+
